@@ -466,11 +466,18 @@ function renderGraph(nodes, links, rootItem) {
   const rowHeight = 90;
 
   for (const [depth, colNodes] of Object.entries(columns)) {
-    colNodes.forEach((node, i) => {
-      node.x = depth * colWidth + 100;
-      node.y = i * rowHeight + 100;
-    });
-  }
+  // Sort by number of outgoing links (more consumers = higher)
+  colNodes.sort((a, b) => {
+    const aOut = links.filter(l => l.to === a.id).length;
+    const bOut = links.filter(l => l.to === b.id).length;
+    return bOut - aOut;
+  });
+
+  colNodes.forEach((node, i) => {
+    node.x = depth * colWidth + 100;
+    node.y = i * rowHeight + 100;
+  });
+}
 
   let svg = `<svg width="2000" height="2000" xmlns="http://www.w3.org/2000/svg">`;
 
