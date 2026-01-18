@@ -4,22 +4,31 @@ async function loadRecipes() {
   return recipes;
 }
 
+let RECIPES = {}; // stored globally after init()
+
 function runCalculator() {
   const item = document.getElementById('itemSelect').value;
   const rate = parseFloat(document.getElementById('rateInput').value);
-  document.getElementById('results').innerText = `Calculating ${rate} units/min of ${item}...`;
-  // TODO: Add logic here
+
+  const outputArea = document.getElementById('outputArea');
+  outputArea.textContent = `Calculating ${rate} units/min of ${item}...`;
+
+  // TODO: Insert full chain logic here
 }
 
 async function init() {
-  const recipes = await loadRecipes();
+  RECIPES = await loadRecipes();
+
   const itemSelect = document.getElementById('itemSelect');
-  Object.keys(recipes).forEach(item => {
+  Object.keys(RECIPES).forEach(item => {
     const option = document.createElement('option');
     option.value = item;
     option.textContent = item;
     itemSelect.appendChild(option);
   });
+
+  // Step 5: Add event listener instead of inline onclick
+  document.getElementById("calcButton").addEventListener("click", runCalculator);
 }
 
 init();
