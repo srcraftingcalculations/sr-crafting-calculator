@@ -461,5 +461,6 @@
     "output": 2,
     "time": 4,
     "building": "Fabricator"
-  }
+  },
+  "_tiers": {}
 }
