@@ -476,9 +476,9 @@ function renderGraph(nodes, links, rootItem) {
       <g>
         <!-- Label text with halo -->
         <text x="${node.x}" y="${node.y - 30}"
-              text-anchor="middle" font-size="12"
+              text-anchor="middle" font-size="12" font-weight="600"
               fill="${labelFill}"
-              stroke="${labelStroke}" stroke-width="2"
+              stroke="${labelStroke}" stroke-width="0.8"
               paint-order="stroke">
           ${node.label}
         </text>
@@ -495,9 +495,9 @@ function renderGraph(nodes, links, rootItem) {
 
         <!-- Machine count text with halo -->
         <text x="${node.x}" y="${node.y + 4}"
-              text-anchor="middle" font-size="12"
+              text-anchor="middle" font-size="12" font-weight="600"
               fill="${labelFill}"
-              stroke="${labelStroke}" stroke-width="2"
+              stroke="${labelStroke}" stroke-width="0.8"
               paint-order="stroke">
           ${node.raw ? "" : Math.ceil(node.machines)}
         </text>
