@@ -166,7 +166,7 @@ function renderTable(chainObj, rootItem, rate) {
     if (!data.raw) {
       const recipe = getRecipe(item);
       if (recipe) {
-        outputPerMachine = Math.ceil((recipe.output / recipe.time) * 60);
+        outputPerMachine = Math.ceil((recipe.output * 60) / recipe.time);
       }
       machines = Math.ceil(data.machines);
       railsNeeded = computeRailsNeeded(data.inputs, railSpeed);
