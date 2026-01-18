@@ -28,14 +28,14 @@ function getTextColor(bg) {
 }
 
 const MACHINE_COLORS = {
-  "Smelter": "#3498db",
-  "Fabricator": "#9b59b6",
-  "Furnace": "#e67e22",
-  "Mega Press": "#c0392b",
-  "Assembler": "#1abc9c",
-  "Refinery": "#2e86de",
-  "Pyro Forge": "#d35400",
-  "Compounder": "#8e44ad"
+  "Smelter":      "#e67e22", // vivid orange
+  "Furnace":      "#d63031", // bright red (distinct from Smelter)
+  "Fabricator":   "#0984e3", // strong blue (more saturated than before)
+  "Mega Press":   "#6c5ce7", // bright violet (separated from Pyro Forge)
+  "Assembler":    "#00b894", // emerald green (clean, readable)
+  "Refinery":     "#e84393", // hot pink (far from Furnace/Smelter)
+  "Compounder":   "#00cec9", // aqua cyan (distinct from Fabricator blue)
+  "Pyro Forge":   "#a55eea"  // lavender purple (lighter than Mega Press)
 };
 
 const MACHINE_SPEED = {
@@ -297,9 +297,7 @@ function renderTable(chainObj, rootItem, rate) {
       let machines = "—";
       let railsNeeded = "—";
 
-      const fillColor = data.raw
-        ? "#f4d03f"
-        : MACHINE_COLORS[data.building] || "#ecf0f1";
+      const fillColor = MACHINE_COLORS[data.building] || "#ecf0f1";
 
       const textColor = getTextColor(fillColor);
 
@@ -470,12 +468,10 @@ function renderGraph(nodes, links, rootItem) {
 
   for (const node of nodes) {
     const fillColor = node.raw
-      ? "#f4d03f"
+      ? "#f4d03f" // RAW
       : MACHINE_COLORS[node.building] || "#95a5a6";
 
-    const strokeColor = node.id === rootItem
-      ? "#27ae60"
-      : "#2c3e50";
+    const strokeColor = "#2c3e50";
 
     const textColor = getTextColor(fillColor);
 
@@ -489,7 +485,6 @@ function renderGraph(nodes, links, rootItem) {
               paint-order="stroke">
           ${node.label}
         </text>
-
 
         <!-- Node circle -->
         <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
