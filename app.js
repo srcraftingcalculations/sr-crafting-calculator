@@ -11,6 +11,17 @@ let RECIPES = {}; // Global storage
 
 
 // ===============================
+// Machine Speeds (adjust later if needed)
+// ===============================
+const MACHINE_SPEED = {
+  "Smelter": 1.0,
+  "Fabricator": 1.0,
+  "Assembler": 1.0,
+  "Furnace": 1.0
+};
+
+
+// ===============================
 // Helper Functions
 // ===============================
 
@@ -32,6 +43,12 @@ function craftsPerMinute(recipe) {
 // Output per minute
 function outputPerMinute(recipe) {
   return craftsPerMinute(recipe) * recipe.output;
+}
+
+// Machines needed
+function machinesNeeded(recipe, craftsPerMin) {
+  const speed = MACHINE_SPEED[recipe.building] || 1.0;
+  return craftsPerMin / speed;
 }
 
 
@@ -58,11 +75,13 @@ function expandChain(item, targetRate, chain = {}) {
     raw: false,
     building: recipe.building,
     crafts: 0,
+    machines: 0,
     inputs: {}
   };
 
   chain[item].rate += targetRate;
   chain[item].crafts += craftsNeeded;
+  chain[item].machines += machinesNeeded(recipe, craftsNeeded);
 
   // Expand inputs
   for (const [inputItem, inputAmount] of Object.entries(recipe.inputs)) {
@@ -87,7 +106,7 @@ function renderResults(chain, rootItem, rate) {
     if (data.raw) {
       text += `${item}: ${data.rate.toFixed(2)} / min (RAW)\n`;
     } else {
-      text += `${item}: ${data.rate.toFixed(2)} / min — ${data.crafts.toFixed(2)} crafts/min in ${data.building}\n`;
+      text += `${item}: ${data.rate.toFixed(2)} / min — ${data.crafts.toFixed(2)} crafts/min — ${data.machines.toFixed(2)} ${data.building}(s)\n`;
       for (const [input, amt] of Object.entries(data.inputs)) {
         text += `   - ${input}: ${amt.toFixed(2)} / min\n`;
       }
