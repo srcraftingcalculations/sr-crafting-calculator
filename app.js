@@ -556,6 +556,9 @@ async function init() {
   RECIPES = data;
   TIERS = data._tiers || {};
 
+  // Manual override: Basic Building Material is crafted from raw ores but should be Tier 0
+  TIERS["Basic Building Material"] = 0;
+
   const itemSelect = document.getElementById('itemSelect');
   if (itemSelect) {
     Object.keys(RECIPES)
