@@ -1,4 +1,17 @@
 body {
   font-family: Arial, sans-serif;
   padding: 20px;
+  max-width: 800px;
+  margin: auto;
+}
+
+label, select, input, button {
+  display: block;
+  margin: 10px 0;
+}
+
+#results {
+  margin-top: 30px;
+  padding: 10px;
+  border-top: 1px solid #ccc;
 }
