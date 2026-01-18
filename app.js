@@ -469,12 +469,35 @@ function renderGraph(nodes, links, rootItem) {
 
     svg += `
       <g>
-        <!-- Background behind label -->
-        <rect x="${node.x - (node.label.length * 3)}" y="${node.y - 42}"
-          width="${node.label.length * 6}" height="16"
-          fill="${fillColor}" rx="3" ry="3" />
+
+        <!-- Label background -->
+        <rect x="${node.x - (node.label.length * 3)}"
+              y="${node.y - 42}"
+              width="${node.label.length * 6}"
+              height="16"
+              fill="${fillColor}"
+              rx="3" ry="3" />
 
         <!-- Label text -->
+        <text x="${node.x}" y="${node.y - 30}"
+              text-anchor="middle" font-size="12"
+              fill="${getTextColor(fillColor)}"
+              paint-order="stroke"
+              stroke="#000000" stroke-width="1">
+          ${node.label}
+        </text>
+
+        <!-- Node circle -->
+        <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
+                fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" />
+
+        <!-- Machine count background -->
+        ${node.raw ? "" : (
+          `<rect x="${node.x - 12}" y="${node.y - 8}" width="24" height="16"
+                 fill="${fillColor}" rx="3" ry="3" />`
+        )}
+
+        <!-- Machine count text -->
         <text x="${node.x}" y="${node.y + 4}"
               text-anchor="middle" font-size="12"
               fill="#ffffff"
@@ -483,22 +506,6 @@ function renderGraph(nodes, links, rootItem) {
           ${node.raw ? "" : Math.ceil(node.machines)}
         </text>
 
-        <!-- Node circle -->
-        <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
-                fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" />
-
-        <!-- Background behind machine count -->
-        ${node.raw ? "" : `
-          <rect x="${node.x - 12}" y="${node.y - 8}" width="24" height="16"
-                fill="${fillColor}" rx="3" ry="3" />
-        `}
-
-        <!-- Machine count text -->
-        <text x="${node.x}" y="${node.y + 4}"
-              text-anchor="middle" font-size="12"
-              fill="${textColor}">
-          ${node.raw ? "" : Math.ceil(node.machines)}
-        </text>
       </g>
     `;
   }
