@@ -477,11 +477,12 @@ function renderGraph(nodes, links, rootItem) {
         <!-- Label text with halo -->
         <text x="${node.x}" y="${node.y - 30}"
               text-anchor="middle" font-size="12" font-weight="600"
-              fill="${labelFill}"
-              stroke="${labelStroke}" stroke-width="0.8"
+              fill="#ffffff"
+              stroke="#000000" stroke-width="0.6"
               paint-order="stroke">
           ${node.label}
         </text>
+
 
         <!-- Node circle -->
         <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
@@ -496,8 +497,8 @@ function renderGraph(nodes, links, rootItem) {
         <!-- Machine count text with halo -->
         <text x="${node.x}" y="${node.y + 4}"
               text-anchor="middle" font-size="12" font-weight="600"
-              fill="${labelFill}"
-              stroke="${labelStroke}" stroke-width="0.8"
+              fill="#ffffff"
+              stroke="#000000" stroke-width="0.6"
               paint-order="stroke">
           ${node.raw ? "" : Math.ceil(node.machines)}
         </text>
