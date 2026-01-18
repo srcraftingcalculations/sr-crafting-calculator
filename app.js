@@ -221,53 +221,64 @@ function renderTable(chain, rootItem, rate) {
       <thead>
         <tr>
           <th>Item</th>
-          <th>Depth</th>
-          <th>Rate (/min)</th>
-          <th>Crafts (/min)</th>
+          <th>Qty/min</th>
+          <th>Output/machine</th>
           <th>Machines</th>
-          <th>Building</th>
+          <th>Machine Type</th>
           <th>Inputs</th>
         </tr>
       </thead>
       <tbody>
   `;
 
-  const entries = Object.entries(chain).sort((a, b) => {
-    const da = a[1].depth || 0;
-    const db = b[1].depth || 0;
-    if (da !== db) return da - db;
-    return a[0].localeCompare(b[0]);
-  });
+  // Group items by depth
+  const depthGroups = {};
+  for (const [item, data] of Object.entries(chain)) {
+    const depth = data.depth ?? 0;
+    if (!depthGroups[depth]) depthGroups[depth] = [];
+    depthGroups[depth].push([item, data]);
+  }
 
-  for (const [item, data] of entries) {
-    if (data.raw) {
-      html += `
-        <tr>
-          <td>${item}</td>
-          <td>${data.depth}</td>
-          <td>${data.rate.toFixed(2)}</td>
-          <td>—</td>
-          <td>—</td>
-          <td>RAW</td>
-          <td>—</td>
-        </tr>
-      `;
-    } else {
-      const inputList = Object.entries(data.inputs)
-        .map(([input, amt]) => `${input}: ${amt.toFixed(2)}/min`)
-        .join("<br>");
+  const sortedDepths = Object.keys(depthGroups)
+    .map(Number)
+    .sort((a, b) => a - b);
 
-      html += `
-        <tr>
-          <td>${item}</td>
-          <td>${data.depth}</td>
-          <td>${data.rate.toFixed(2)}</td>
-          <td>${data.crafts.toFixed(2)}</td>
-          <td>${data.machines.toFixed(2)}</td>
-          <td>${data.building}</td>
-          <td>${inputList}</td>
-        </tr>
-      `;
+  for (const depth of sortedDepths) {
+    html += `
+      <tr><td colspan="6"><strong>--- Level ${depth} ---</strong></td></tr>
+    `;
+
+    const rows = depthGroups[depth].sort((a, b) => a[0].localeCompare(b[0]));
+
+    for (const [item, data] of rows) {
+      if (data.raw) {
+        html += `
+          <tr>
+            <td>${item}</td>
+            <td>${data.rate.toFixed(2)}</td>
+            <td>—</td>
+            <td>—</td>
+            <td>RAW</td>
+            <td>—</td>
+          </tr>
+        `;
+      } else {
+        const outputPerMachine = outputPerMinute(getRecipe(item));
+        const inputList = Object.entries(data.inputs)
+          .map(([input, amt]) => `${input}: ${amt.toFixed(2)}/min`)
+          .join("<br>");
+
+        html += `
+          <tr>
+            <td>${item}</td>
+            <td>${data.rate.toFixed(2)}</td>
+            <td>${outputPerMachine.toFixed(2)}</td>
+            <td>${data.machines.toFixed(2)}</td>
+            <td>${data.building}</td>
+            <td>${inputList}</td>
+          </tr>
+        `;
+      }
     }
   }
 
