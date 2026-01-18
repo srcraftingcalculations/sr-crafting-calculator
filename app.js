@@ -362,14 +362,18 @@ function renderGraph(graphData, rootItem) {
   });
 
   nodes.forEach(node => {
-    const fill = node.raw ? "#f4d03f" : "#3498db";
-    const stroke = node.id === rootItem ? "#e74c3c" : "#2c3e50";
+  const fill = node.raw ? "#f4d03f" : "#3498db";
+  const stroke = node.id === rootItem ? "#e74c3c" : "#2c3e50";
 
-    svg += `
+  svg += `
+    <g>
+      <text x="${node.x}" y="${node.y - 30}"
+            text-anchor="middle" font-size="12">${node.label}</text>
       <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
               fill="${fill}" stroke="${stroke}" stroke-width="2" />
-    `;
-  });
+    </g>
+  `;
+});
 
   svg += `</svg>`;
   container.innerHTML = svg;
