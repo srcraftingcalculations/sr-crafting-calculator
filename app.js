@@ -35,7 +35,8 @@ const MACHINE_SPEED = {
   "Assembler": 1.0,
   "Furnace": 1.0,
   "Mega Press": 1.0,
-  "Refinery": 1.0
+  "Refinery": 1.0,
+  "Pyro Forge": 1.0
 };
 
 
@@ -214,6 +215,50 @@ function renderGraph(graphData, rootItem) {
 
 
 // ===============================
+// MACHINE TOTALS (rounded UP)
+// ===============================
+function computeMachineTotals(chain) {
+  const totals = {};
+
+  for (const data of Object.values(chain)) {
+    if (!data.raw && data.machines > 0) {
+      const type = data.building;
+      totals[type] = (totals[type] || 0) + data.machines;
+    }
+  }
+
+  return Object.entries(totals)
+    .sort((a, b) => b[1] - a[1])
+    .map(([type, count]) => ({ type, count: Math.ceil(count) }));
+}
+
+
+// ===============================
+// EXTRACTION REQUIRED (rounded UP)
+// ===============================
+function computeExtractionBreakdown(chain) {
+  const railRate = 240;
+  const breakdown = [];
+
+  for (const [item, data] of Object.entries(chain)) {
+    if (data.raw && data.rate > 0) {
+      const qty = Math.ceil(data.rate);
+
+      breakdown.push({
+        item,
+        qty,
+        impure: Math.ceil(qty / (railRate * 0.5)),
+        normal: Math.ceil(qty / railRate),
+        pure: Math.ceil(qty / (railRate * 2))
+      });
+    }
+  }
+
+  return breakdown.sort((a, b) => b.qty - a.qty);
+}
+
+
+// ===============================
 // Table Rendering (Tier-Based)
 // ===============================
 function renderTable(chain, rootItem, rate) {
@@ -241,6 +286,7 @@ function renderTable(chain, rootItem, rate) {
     tierGroups[tier].push([item, data]);
   }
 
+  // Sort highest → lowest
   const sortedTiers = Object.keys(tierGroups)
     .map(Number)
     .sort((a, b) => b - a);
@@ -257,7 +303,7 @@ function renderTable(chain, rootItem, rate) {
         html += `
           <tr>
             <td>${item}</td>
-            <td>${data.rate.toFixed(2)}</td>
+            <td>${Math.ceil(data.rate)}</td>
             <td>—</td>
             <td>—</td>
             <td>RAW</td>
@@ -273,9 +319,9 @@ function renderTable(chain, rootItem, rate) {
         html += `
           <tr>
             <td>${item}</td>
-            <td>${data.rate.toFixed(2)}</td>
+            <td>${Math.ceil(data.rate)}</td>
             <td>${outputPerMachine.toFixed(2)}</td>
-            <td>${data.machines.toFixed(2)}</td>
+            <td>${Math.ceil(data.machines)}</td>
             <td>${data.building}</td>
             <td>${inputList}</td>
           </tr>
@@ -285,6 +331,57 @@ function renderTable(chain, rootItem, rate) {
   }
 
   html += `
+      </tbody>
+    </table>
+  `;
+
+  // ===============================
+  // MACHINES REQUIRED SUMMARY
+  // ===============================
+  const machineTotals = computeMachineTotals(chain);
+  html += `
+    <h3>MACHINES REQUIRED (total)</h3>
+    <table>
+      <thead>
+        <tr><th>Machine Type</th><th>Count</th></tr>
+      </thead>
+      <tbody>
+        ${machineTotals.map(m => `
+          <tr>
+            <td>${m.type}</td>
+            <td>${m.count}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+
+  // ===============================
+  // EXTRACTION REQUIRED SUMMARY
+  // ===============================
+  const extraction = computeExtractionBreakdown(chain);
+  html += `
+    <h3>EXTRACTION REQUIRED (v2 rails @ 240/min)</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Resource</th>
+          <th>Impure</th>
+          <th>Normal</th>
+          <th>Pure</th>
+          <th>Qty/min</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${extraction.map(e => `
+          <tr>
+            <td>${e.item}</td>
+            <td>${e.impure}</td>
+            <td>${e.normal}</td>
+            <td>${e.pure}</td>
+            <td>${e.qty}</td>
+          </tr>
+        `).join("")}
       </tbody>
     </table>
   `;
