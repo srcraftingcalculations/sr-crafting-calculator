@@ -139,6 +139,7 @@ function computeDepths(chain, rootItem) {
   const consumers = {};
   const depths = {};
 
+  // Build reverse edges: input → list of items that consume it
   for (const [item, data] of Object.entries(chain)) {
     for (const input of Object.keys(data.inputs || {})) {
       if (!consumers[input]) consumers[input] = [];
@@ -146,6 +147,7 @@ function computeDepths(chain, rootItem) {
     }
   }
 
+  // Start by putting the root far right
   depths[rootItem] = 999;
 
   let changed = true;
@@ -169,6 +171,26 @@ function computeDepths(chain, rootItem) {
     }
   }
 
+  // Second pass: strictly enforce "inputs are left of outputs"
+  let adjusted = true;
+  while (adjusted) {
+    adjusted = false;
+
+    for (const [item, data] of Object.entries(chain)) {
+      const itemDepth = depths[item] ?? 0;
+
+      for (const input of Object.keys(data.inputs || {})) {
+        const inputDepth = depths[input] ?? 0;
+
+        if (inputDepth >= itemDepth) {
+          depths[input] = itemDepth - 1;
+          adjusted = true;
+        }
+      }
+    }
+  }
+
+  // Normalize so smallest depth becomes 0
   const minDepth = Math.min(...Object.values(depths));
   for (const item of Object.keys(depths)) {
     depths[item] -= minDepth;
