@@ -280,6 +280,7 @@ function buildGraphData(chain, rootItem) {
   const links = [];
   const nodeMap = new Map();
 
+  // Create nodes for all items in the chain
   for (const [item, data] of Object.entries(chain)) {
     const node = {
       id: item,
@@ -294,12 +295,30 @@ function buildGraphData(chain, rootItem) {
     nodeMap.set(item, node);
   }
 
+  // Add missing RAW nodes that appear only as inputs
   for (const [item, data] of Object.entries(chain)) {
-    if (!data.raw) {
-      for (const inputItem of Object.keys(data.inputs || {})) {
-        if (nodeMap.has(inputItem)) {
-          links.push({ from: item, to: inputItem });
-        }
+    for (const inputItem of Object.keys(data.inputs || {})) {
+      if (!nodeMap.has(inputItem)) {
+        const rawNode = {
+          id: inputItem,
+          label: inputItem,
+          depth: TIERS[inputItem] ?? 0,
+          raw: true,
+          building: "RAW",
+          rate: data.inputs[inputItem],
+          machines: 0
+        };
+        nodes.push(rawNode);
+        nodeMap.set(inputItem, rawNode);
+      }
+    }
+  }
+
+  // Create links from each item to its inputs
+  for (const [item, data] of Object.entries(chain)) {
+    for (const inputItem of Object.keys(data.inputs || {})) {
+      if (nodeMap.has(inputItem)) {
+        links.push({ from: item, to: inputItem });
       }
     }
   }
