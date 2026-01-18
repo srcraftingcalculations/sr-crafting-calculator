@@ -1,62 +1,104 @@
+/* ============================
+   Base Layout
+============================ */
 body {
   font-family: Arial, sans-serif;
-  padding: 20px;
-  max-width: 900px;
-  margin: auto;
-  background: #f7f7f7;
+  margin: 20px;
+  background: #f5f5f5;
+  color: #222;
+  transition: background 0.3s, color 0.3s;
 }
 
 header {
-  text-align: center;
-  margin-bottom: 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-.subtitle {
-  color: #555;
-  margin-top: -10px;
-}
-
-#inputs {
-  background: white;
-  padding: 20px;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  margin-bottom: 30px;
-}
-
-label {
-  font-weight: bold;
-  margin-top: 10px;
-}
-
-select, input {
-  width: 100%;
-  padding: 8px;
-  margin-top: 5px;
+#controls {
+  margin: 20px 0;
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 
 button {
-  margin-top: 15px;
-  padding: 10px 15px;
-  background: #2a7ae2;
-  color: white;
-  border: none;
-  border-radius: 5px;
+  padding: 6px 12px;
   cursor: pointer;
+  border: 1px solid #444;
+  background: #ddd;
+  transition: background 0.3s;
 }
 
 button:hover {
-  background: #1f5fb8;
+  background: #ccc;
 }
 
-#results {
+/* ============================
+   Table Styling
+============================ */
+table {
+  width: 100%;
+  border-collapse: collapse;
   background: white;
-  padding: 20px;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  color: #222;
+  margin-top: 20px;
 }
 
-#outputArea {
-  margin-top: 10px;
-  white-space: pre-wrap;
+table th {
+  background: #2f4f4f;
+  color: white;
+  padding: 8px;
+}
+
+table td {
+  padding: 6px 10px;
+  border: 1px solid #ccc;
+}
+
+/* ============================
+   Graph Area
+============================ */
+#graphArea {
+  margin-top: 40px;
+}
+
+#graphArea svg text {
+  fill: #333;
+}
+
+/* ============================
+   DARK MODE
+============================ */
+body.dark {
+  background: #1e1e1e;
+  color: #ddd;
+}
+
+body.dark button {
+  background: #444;
+  color: #eee;
+  border-color: #666;
+}
+
+body.dark button:hover {
+  background: #555;
+}
+
+body.dark table {
+  background: #2a2a2a;
+  color: #ddd;
+}
+
+body.dark table th {
+  background: #444;
+  color: #fff;
+}
+
+body.dark table td {
+  border: 1px solid #555;
+}
+
+body.dark #graphArea svg text {
+  fill: #ddd;
 }
