@@ -429,27 +429,6 @@ function buildGraphData(chain, rootItem) {
   return { nodes, links };
 }
 
-  // Add RAW nodes that appear only as inputs
-  for (const [item, data] of Object.entries(chain)) {
-    const parentDepth = TIERS[item] ?? 0;
-
-    for (const inputItem of Object.keys(data.inputs || {})) {
-      if (!nodeMap.has(inputItem)) {
-        const rawNode = {
-          id: inputItem,
-          label: inputItem,
-          depth: parentDepth + 1,   // ⭐ RAW nodes appear one tier deeper
-          raw: true,
-          special: SPECIAL_EXTRACTORS.includes(inputItem),
-          building: "RAW",
-          rate: data.inputs[inputItem],
-          machines: 0
-        };
-        nodes.push(rawNode);
-        nodeMap.set(inputItem, rawNode);
-      }
-    }
-  }
 
   // Create links from each item to its inputs
   for (const [item, data] of Object.entries(chain)) {
