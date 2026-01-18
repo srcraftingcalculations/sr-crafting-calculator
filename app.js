@@ -26,7 +26,7 @@ let RECIPES = {}; // Global storage
 
 
 // ===============================
-// Machine Speeds (adjust later if needed)
+// Machine Speeds
 // ===============================
 const MACHINE_SPEED = {
   "Smelter": 1.0,
@@ -39,23 +39,18 @@ const MACHINE_SPEED = {
 // ===============================
 // Helper Functions
 // ===============================
-
-// Get recipe for an item
 function getRecipe(item) {
   return RECIPES[item] || null;
 }
 
-// Crafts per minute
 function craftsPerMinute(recipe) {
   return 60 / recipe.time;
 }
 
-// Output per minute
 function outputPerMinute(recipe) {
   return craftsPerMinute(recipe) * recipe.output;
 }
 
-// Machines needed
 function machinesNeeded(recipe, craftsPerMin) {
   const speed = MACHINE_SPEED[recipe.building] || 1.0;
   return craftsPerMin / speed;
@@ -68,7 +63,6 @@ function machinesNeeded(recipe, craftsPerMin) {
 function expandChain(item, targetRate, chain = {}, depth = 0) {
   const recipe = getRecipe(item);
 
-  // Raw resource (no recipe)
   if (!recipe) {
     chain[item] = chain[item] || {
       rate: 0,
@@ -122,7 +116,6 @@ function buildGraphData(chain, rootItem) {
 
   const nodeMap = new Map();
 
-  // Create nodes
   for (const [item, data] of Object.entries(chain)) {
     const node = {
       id: item,
@@ -137,7 +130,6 @@ function buildGraphData(chain, rootItem) {
     nodeMap.set(item, node);
   }
 
-  // Create links based on inputs
   for (const [item, data] of Object.entries(chain)) {
     if (!data.raw) {
       for (const inputItem of Object.keys(data.inputs)) {
@@ -153,7 +145,7 @@ function buildGraphData(chain, rootItem) {
 
 
 // ===============================
-// Graph Layout + SVG Rendering
+// Graph Rendering
 // ===============================
 function renderGraph(graphData, rootItem) {
   const container = document.getElementById('graphArea');
@@ -166,14 +158,12 @@ function renderGraph(graphData, rootItem) {
 
   const { nodes, links } = graphData;
 
-  // Group nodes by depth
   const depthMap = new Map();
   nodes.forEach(node => {
     if (!depthMap.has(node.depth)) depthMap.set(node.depth, []);
     depthMap.get(node.depth).push(node);
   });
 
-  // Assign positions
   depthMap.forEach((nodesAtDepth, depth) => {
     nodesAtDepth.forEach((node, index) => {
       node.x = 100 + depth * colWidth;
@@ -181,10 +171,8 @@ function renderGraph(graphData, rootItem) {
     });
   });
 
-  // Build SVG
   let svg = `<svg width="${width}" height="${Math.max(300, nodes.length * rowHeight)}" xmlns="http://www.w3.org/2000/svg">`;
 
-  // Draw links
   links.forEach(link => {
     const fromNode = nodes.find(n => n.id === link.from);
     const toNode = nodes.find(n => n.id === link.to);
@@ -196,7 +184,6 @@ function renderGraph(graphData, rootItem) {
     `;
   });
 
-  // Arrow marker
   svg += `
     <defs>
       <marker id="arrow" markerWidth="10" markerHeight="10" refX="10" refY="3" orient="auto" markerUnits="strokeWidth">
@@ -205,7 +192,6 @@ function renderGraph(graphData, rootItem) {
     </defs>
   `;
 
-  // Draw nodes
   nodes.forEach(node => {
     const fill = node.raw ? "#f4d03f" : "#3498db";
     const stroke = node.id === rootItem ? "#e74c3c" : "#2c3e50";
@@ -213,9 +199,9 @@ function renderGraph(graphData, rootItem) {
     svg += `
       <g>
         <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}" fill="${fill}" stroke="${stroke}" stroke-width="2" />
-        <text x="${node.x}" y="${node.y - 30}" text-anchor="middle" font-size="12" fill="#333">${node.label}</text>
-        <text x="${node.x}" y="${node.y + 4}" text-anchor="middle" font-size="10" fill="#fff">${node.rate.toFixed(1)}/m</text>
-        <text x="${node.x}" y="${node.y + 18}" text-anchor="middle" font-size="9" fill="#fff">${node.machines.toFixed(2)}x</text>
+        <text x="${node.x}" y="${node.y - 30}" text-anchor="middle" font-size="12">${node.label}</text>
+        <text x="${node.x}" y="${node.y + 4}" text-anchor="middle" font-size="10">${node.rate.toFixed(1)}/m</text>
+        <text x="${node.x}" y="${node.y + 18}" text-anchor="middle" font-size="9">${node.machines.toFixed(2)}x</text>
       </g>
     `;
   });
@@ -226,7 +212,7 @@ function renderGraph(graphData, rootItem) {
 
 
 // ===============================
-// Table Render
+// Table Rendering
 // ===============================
 function renderTable(chain, rootItem, rate) {
   let html = `
@@ -295,7 +281,7 @@ function renderTable(chain, rootItem, rate) {
 
 
 // ===============================
-// Main Calculator Trigger
+// Calculator Trigger
 // ===============================
 function runCalculator() {
   const item = document.getElementById('itemSelect').value;
@@ -311,9 +297,32 @@ function runCalculator() {
 
 
 // ===============================
+// Dark Mode Toggle
+// ===============================
+function setupDarkMode() {
+  const toggle = document.getElementById("darkModeToggle");
+
+  const saved = localStorage.getItem("darkMode");
+  if (saved === "true") {
+    document.body.classList.add("dark");
+    toggle.textContent = "☀️ Light Mode";
+  }
+
+  toggle.addEventListener("click", () => {
+    const isDark = document.body.classList.toggle("dark");
+    localStorage.setItem("darkMode", isDark);
+
+    toggle.textContent = isDark ? "☀️ Light Mode" : "🌙 Dark Mode";
+  });
+}
+
+
+// ===============================
 // Initialization
 // ===============================
 async function init() {
+  setupDarkMode();
+
   RECIPES = await loadRecipes();
 
   const itemSelect = document.getElementById('itemSelect');
