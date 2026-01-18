@@ -1,10 +1,25 @@
 // ===============================
-// Load Recipes
+// Load Recipes (Live GitHub Fetch)
 // ===============================
 async function loadRecipes() {
-  const response = await fetch('data/recipes.json');
-  const recipes = await response.json();
-  return recipes;
+  const url = "https://srcraftingcalculations.github.io/sr-crafting-calculator/data/recipes.json";
+
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch recipes.json");
+    }
+
+    const recipes = await response.json();
+    return recipes;
+
+  } catch (err) {
+    console.error("Error loading recipes:", err);
+    document.getElementById("outputArea").innerHTML =
+      `<p style="color:red;">Error loading recipe data. Please try again later.</p>`;
+    return {};
+  }
 }
 
 let RECIPES = {}; // Global storage
@@ -88,7 +103,8 @@ function expandChain(item, targetRate, chain = {}, depth = 0) {
   for (const [inputItem, inputAmount] of Object.entries(recipe.inputs)) {
     const inputRate = craftsNeeded * inputAmount;
 
-    chain[item].inputs[inputItem] = (chain[item].inputs[inputItem] || 0) + inputRate;
+    chain[item].inputs[inputItem] =
+      (chain[item].inputs[inputItem] || 0) + inputRate;
 
     expandChain(inputItem, inputRate, chain, depth + 1);
   }
@@ -126,10 +142,7 @@ function buildGraphData(chain, rootItem) {
     if (!data.raw) {
       for (const inputItem of Object.keys(data.inputs)) {
         if (nodeMap.has(inputItem)) {
-          links.push({
-            from: item,
-            to: inputItem
-          });
+          links.push({ from: item, to: inputItem });
         }
       }
     }
@@ -162,7 +175,6 @@ function renderGraph(graphData, rootItem) {
 
   // Assign positions
   depthMap.forEach((nodesAtDepth, depth) => {
-    const count = nodesAtDepth.length;
     nodesAtDepth.forEach((node, index) => {
       node.x = 100 + depth * colWidth;
       node.y = 80 + index * rowHeight;
@@ -209,13 +221,12 @@ function renderGraph(graphData, rootItem) {
   });
 
   svg += `</svg>`;
-
   container.innerHTML = svg;
 }
 
 
 // ===============================
-// Table Render (kept alongside graph)
+// Table Render
 // ===============================
 function renderTable(chain, rootItem, rate) {
   let html = `
@@ -235,7 +246,6 @@ function renderTable(chain, rootItem, rate) {
       <tbody>
   `;
 
-  // Sort by depth, then by name
   const entries = Object.entries(chain).sort((a, b) => {
     const da = a[1].depth || 0;
     const db = b[1].depth || 0;
@@ -248,7 +258,7 @@ function renderTable(chain, rootItem, rate) {
       html += `
         <tr>
           <td>${item}</td>
-          <td>${data.depth ?? 0}</td>
+          <td>${data.depth}</td>
           <td>${data.rate.toFixed(2)}</td>
           <td>—</td>
           <td>—</td>
@@ -257,14 +267,14 @@ function renderTable(chain, rootItem, rate) {
         </tr>
       `;
     } else {
-      let inputList = Object.entries(data.inputs)
+      const inputList = Object.entries(data.inputs)
         .map(([input, amt]) => `${input}: ${amt.toFixed(2)}/min`)
         .join("<br>");
 
       html += `
         <tr>
           <td>${item}</td>
-          <td>${data.depth ?? 0}</td>
+          <td>${data.depth}</td>
           <td>${data.rate.toFixed(2)}</td>
           <td>${data.crafts.toFixed(2)}</td>
           <td>${data.machines.toFixed(2)}</td>
@@ -293,10 +303,8 @@ function runCalculator() {
 
   const chain = expandChain(item, rate);
 
-  // Table
   renderTable(chain, item, rate);
 
-  // Graph
   const graphData = buildGraphData(chain, item);
   renderGraph(graphData, item);
 }
