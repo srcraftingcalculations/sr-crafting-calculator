@@ -60,6 +60,17 @@
     "time": 2,
     "building": "Furnace"
   },
+  "Electromagnetic Coil": {
+    "inputs": {
+      "Inductor": 1,
+      "Pressurized Helium": 1,
+      "Wolfram Plate": 6,
+      "Supermagnet": 1
+    },
+    "output": 1,
+    "time": 4,
+    "building": "Mega Press"
+  },
   "Electronics": {
     "inputs": {
       "Synthetic Silicon": 2,
@@ -420,6 +431,7 @@
     "Calcium Powder": 1,
     "Ceramics": 2,
     "Chemicals": 4,
+    "Electromagnetic Coil": 7,
     "Electronics": 4,
     "Glass": 2,
     "Goethite Ingot": 1,
