@@ -1,14 +1,4 @@
 {
-  "Accumulator": {
-    "inputs": {
-      "Electronics": 2,
-      "Stator": 1,
-      "Battery": 2
-    },
-    "output": 1,
-    "time": 6,
-    "building": "Assembler"
-  },
   "Applicator": {
     "inputs": {
       "Tube": 8,
@@ -26,16 +16,6 @@
     "output": 10,
     "time": 2,
     "building": "Fabricator"
-  },
-  "Battery": {
-    "inputs": {
-      "Inductor": 2,
-      "Electronics": 2,
-      "Sulphuric Acid": 1
-    },
-    "output": 1,
-    "time": 4,
-    "building": "Mega Press"
   },
   "Calcite Sheets": {
     "inputs": {
@@ -79,27 +59,6 @@
     "output": 2,
     "time": 2,
     "building": "Furnace"
-  },
-  "Electromagnet": {
-    "inputs": {
-      "Electromagnetic Coil": 3,
-      "Synthetic Resin": 3,
-      "Accumulator": 2
-    },
-    "output": 1,
-    "time": 5,
-    "building": "Assembler"
-  },
-  "Electromagnetic Coil": {
-    "inputs": {
-      "Inductor": 1,
-      "Pressurized Helium": 1,
-      "Wolfram Plate": 6,
-      "Supermagnet": 1
-    },
-    "output": 1,
-    "time": 4,
-    "building": "Mega Press"
   },
   "Electronics": {
     "inputs": {
@@ -236,6 +195,17 @@
     "time": 2,
     "building": "Refinery"
   },
+  "Pump": {
+    "inputs": {
+      "Valve": 1,
+      "Turbine": 1,
+      "Impeller": 1,
+      "Sulfuric Acid": 3
+    },
+    "output": 1,
+    "time": 10,
+    "building": "Mega Press"
+  },
   "Rotor": {
     "inputs": {
       "Titanium Rod": 2,
@@ -289,16 +259,6 @@
     "output": 1,
     "time": 0.5,
     "building": "Refinery"
-  },
-  "Superconductor": {
-    "inputs": {
-      "Ceramics": 7,
-      "Electromagnet": 2,
-      "Supermagnet": 8
-    },
-    "output": 1,
-    "time": 5,
-    "building": "Compounder"
   },
   "Supermagnet": {
     "inputs": {
@@ -453,17 +413,13 @@
     "building": "Fabricator"
   },
   "_tiers": {
-    "Accumulator": 7,
     "Applicator": 3,
     "Basic Building Material": 1,
-    "Battery": 6,
     "Calcite Sheets": 1,
     "Calcium Block": 0,
     "Calcium Powder": 1,
     "Ceramics": 2,
     "Chemicals": 4,
-    "Electromagnet": 8,
-    "Electromagnetic Coil": 7,
     "Electronics": 4,
     "Glass": 2,
     "Goethite Ingot": 1,
@@ -478,13 +434,13 @@
     "Nanofibre": 8,
     "Nozzle": 4,
     "Pressurized Helium": 1,
+    "Pump": 7,
     "Rotor": 2,
     "Shotgun Ammo": 2,
     "Stabilizer": 3,
     "Standard Ammo": 2,
     "Stator": 3,
     "Sulphuric Acid": 5,
-    "Superconductor": 9,
     "Supermagnet": 6,
     "Synthetic Resin": 7,
     "Synthetic Silicon": 3,
