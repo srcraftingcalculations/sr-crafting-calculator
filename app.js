@@ -470,7 +470,8 @@ function renderGraph(nodes, links, rootItem) {
     svg += `
       <g>
         <!-- Background behind label -->
-        <rect x="${node.x - 40}" y="${node.y - 42}" width="80" height="16"
+        <rect x="${node.x - (node.label.length * 3)}" y="${node.y - 42}"
+              width="${node.label.length * 6}" height="16"
               fill="rgba(0,0,0,0.6)" rx="3" ry="3" />
 
         <!-- Label text -->
