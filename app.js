@@ -448,7 +448,14 @@ function renderGraph(nodes, links, rootItem) {
     });
   }
 
-  let svg = `<svg width="2000" height="2000" xmlns="http://www.w3.org/2000/svg">`;
+  // Compute dynamic SVG size based on node positions
+  const maxX = Math.max(...nodes.map(n => n.x));
+  const maxY = Math.max(...nodes.map(n => n.y));
+
+  const svgWidth = maxX + 200;   // padding on the right
+  const svgHeight = maxY + 200;  // padding below the lowest node
+
+  let svg = `<svg width="${svgWidth}" height="${svgHeight}" xmlns="http://www.w3.org/2000/svg">`;
 
   for (const link of links) {
     const from = nodes.find(n => n.id === link.from);
