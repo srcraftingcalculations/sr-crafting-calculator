@@ -35,13 +35,6 @@ const SPECIAL_EXTRACTORS = {
   "Sulphur Ore": 240
 };
 
-const STANDARD_ORES = {
-  "Calcium Ore": true,
-  "Titanium Ore": true,
-  "Wolfram Ore": true
-};
-
-
 // ===============================
 // Helpers
 // ===============================
@@ -49,9 +42,14 @@ function getRecipe(name) {
   return RECIPES[name] || null;
 }
 
+function computeRailsNeeded(inputRates, railSpeed) {
+  const total = Object.values(inputRates).reduce((sum, val) => sum + val, 0);
+  return Math.ceil(total / railSpeed);
+}
+
 
 // ===============================
-// Chain Expansion (Formuoli-aligned)
+// Chain Expansion
 // ===============================
 function expandChain(item, targetRate) {
   const chain = {};
@@ -75,7 +73,6 @@ function expandChain(item, targetRate) {
   enqueue(item, targetRate);
 
   while (queue.length > 0) {
-    // Highest tier first
     queue.sort((a, b) => (TIERS[b] ?? 0) - (TIERS[a] ?? 0));
     const current = queue.shift();
     if (processed[current]) continue;
@@ -84,7 +81,6 @@ function expandChain(item, targetRate) {
     const rate = pending[current];
     const recipe = getRecipe(current);
 
-    // Raw resource
     if (!recipe) {
       chain[current] = {
         rate,
@@ -124,10 +120,11 @@ function expandChain(item, targetRate) {
 
 
 // ===============================
-// Table Rendering (Formuoli-style)
+// Table Rendering
 // ===============================
 function renderTable(chainObj, rootItem, rate) {
   const { chain, machineTotals, extractorTotals } = chainObj;
+  const railSpeed = parseInt(document.getElementById("railSelect").value);
 
   let html = `
     <h2>Production chain for ${rate} / min of ${rootItem}</h2>
@@ -140,6 +137,7 @@ function renderTable(chainObj, rootItem, rate) {
           <th>Machines</th>
           <th>Machine Type</th>
           <th>Inputs</th>
+          <th>Rails Needed</th>
         </tr>
       </thead>
       <tbody>
@@ -154,42 +152,45 @@ function renderTable(chainObj, rootItem, rate) {
 
   const sortedTiers = Object.keys(tierGroups)
     .map(Number)
-    .sort((a, b) => b - a); // highest → lowest
+    .sort((a, b) => b - a);
 
   for (const tier of sortedTiers) {
-    html += `<tr><td colspan="6"><strong>--- Level ${tier} ---</strong></td></tr>`;
+    html += `<tr><td colspan="7"><strong>--- Level ${tier} ---</strong></td></tr>`;
     const rows = tierGroups[tier].sort((a, b) => a[0].localeCompare(b[0]));
 
-    for (const [item, data] of rows) {
-      let outputPerMachine = "—";
-      let machines = "—";
+  for (const [item, data] of rows) {
+    let outputPerMachine = "—";
+    let machines = "—";
+    let railsNeeded = "—";
 
-      if (!data.raw) {
-        const recipe = getRecipe(item);
-        if (recipe) {
-          outputPerMachine = Math.ceil((recipe.output / recipe.time) * 60);
-        }
-        machines = Math.ceil(data.machines);
+    if (!data.raw) {
+      const recipe = getRecipe(item);
+      if (recipe) {
+        outputPerMachine = Math.ceil((recipe.output / recipe.time) * 60);
       }
-
-      const inputs = Object.entries(data.inputs || {})
-        .map(([i, amt]) => `${i}: ${Math.ceil(amt)}/min`)
-        .join("<br>");
-
-      html += `
-        <tr>
-          <td>${item}</td>
-          <td>${Math.ceil(data.rate)}</td>
-          <td>${outputPerMachine}</td>
-          <td>${machines}</td>
-          <td>${data.building}</td>
-          <td>${inputs || "—"}</td>
-        </tr>
-      `;
+      machines = Math.ceil(data.machines);
+      railsNeeded = computeRailsNeeded(data.inputs, railSpeed);
     }
-  }
 
-  html += `</tbody></table>`;
+    const inputs = Object.entries(data.inputs || {})
+      .map(([i, amt]) => `${i}: ${Math.ceil(amt)}/min`)
+      .join("<br>");
+
+    html += `
+      <tr>
+        <td>${item}</td>
+        <td>${Math.ceil(data.rate)}</td>
+        <td>${outputPerMachine}</td>
+        <td>${machines}</td>
+        <td>${data.building}</td>
+        <td>${inputs || "—"}</td>
+        <td>${railsNeeded}</td>
+      </tr>
+    `;
+  }
+}
+
+html += `</tbody></table>`;
 
   // ===============================
   // MACHINES REQUIRED (total)
@@ -197,12 +198,17 @@ function renderTable(chainObj, rootItem, rate) {
   html += `
     <h3>MACHINES REQUIRED (total)</h3>
     <table>
-      <thead><tr><th>Machine Type</th><th>Count</th></tr></thead>
+      <thead>
+        <tr><th>Machine Type</th><th>Count</th></tr>
+      </thead>
       <tbody>
         ${Object.entries(machineTotals)
           .sort((a, b) => b[1] - a[1])
           .map(([type, count]) => `
-            <tr><td>${type}</td><td>${Math.ceil(count)}</td></tr>
+            <tr>
+              <td>${type}</td>
+              <td>${Math.ceil(count)}</td>
+            </tr>
           `).join("")}
       </tbody>
     </table>
@@ -212,7 +218,7 @@ function renderTable(chainObj, rootItem, rate) {
   // EXTRACTION REQUIRED
   // ===============================
   html += `
-    <h3>EXTRACTION REQUIRED (v2 rails @ 240/min)</h3>
+    <h3>EXTRACTION REQUIRED</h3>
     <table>
       <thead>
         <tr>
@@ -248,6 +254,7 @@ function renderTable(chainObj, rootItem, rate) {
       const impure = Math.ceil(rounded / 60);
       const normal = Math.ceil(rounded / 120);
       const pure = Math.ceil(rounded / 240);
+
       html += `
         <tr>
           <td>${resource}</td>
@@ -261,13 +268,12 @@ function renderTable(chainObj, rootItem, rate) {
   }
 
   html += `</tbody></table>`;
-
   document.getElementById("outputArea").innerHTML = html;
 }
 
 
 // ===============================
-// Graph Data + Rendering
+// Graph Rendering
 // ===============================
 function buildGraphData(chain, rootItem) {
   const nodes = [];
@@ -333,14 +339,18 @@ function renderGraph(graphData, rootItem) {
     if (!fromNode || !toNode) return;
 
     svg += `
-      <line x1="${fromNode.x}" y1="${fromNode.y}" x2="${toNode.x}" y2="${toNode.y}"
-            stroke="#999" stroke-width="2" marker-end="url(#arrow)" />
+      <line x1="${fromNode.x}" y1="${fromNode.y}"
+            x2="${toNode.x}" y2="${toNode.y}"
+            stroke="#999" stroke-width="2"
+            marker-end="url(#arrow)" />
     `;
   });
 
   svg += `
     <defs>
-      <marker id="arrow" markerWidth="10" markerHeight="10" refX="10" refY="3" orient="auto" markerUnits="strokeWidth">
+      <marker id="arrow" markerWidth="10" markerHeight="10"
+              refX="10" refY="3" orient="auto"
+              markerUnits="strokeWidth">
         <path d="M0,0 L0,6 L9,3 z" fill="#999" />
       </marker>
     </defs>
@@ -352,10 +362,14 @@ function renderGraph(graphData, rootItem) {
 
     svg += `
       <g>
-        <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}" fill="${fill}" stroke="${stroke}" stroke-width="2" />
-        <text x="${node.x}" y="${node.y - 30}" text-anchor="middle" font-size="12">${node.label}</text>
-        <text x="${node.x}" y="${node.y + 4}" text-anchor="middle" font-size="10">${Math.ceil(node.rate)}/m</text>
-        <text x="${node.x}" y="${node.y + 18}" text-anchor="middle" font-size="9">${Math.ceil(node.machines)}x</text>
+        <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
+                fill="${fill}" stroke="${stroke}" stroke-width="2" />
+        <text x="${node.x}" y="${node.y - 30}"
+              text-anchor="middle" font-size="12">${node.label}</text>
+        <text x="${node.x}" y="${node.y + 4}"
+              text-anchor="middle" font-size="10">${Math.ceil(node.rate)}/m</text>
+        <text x="${node.x}" y="${node.y + 18}"
+              text-anchor="middle" font-size="9">${Math.ceil(node.machines)}x</text>
       </g>
     `;
   });
@@ -385,7 +399,6 @@ function runCalculator() {
   const graphData = buildGraphData(chainObj.chain, item);
   renderGraph(graphData, item);
 }
-
 
 // ===============================
 // Dark Mode Toggle
