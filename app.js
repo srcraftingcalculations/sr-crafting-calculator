@@ -33,7 +33,7 @@ const MACHINE_COLORS = {
   "Furnace": "#e67e22",
   "Mega Press": "#c0392b",
   "Assembler": "#1abc9c",
-  "Refinery": "#16a085",
+  "Refinery": "#2e86de",
   "Pyro Forge": "#d35400",
   "Compounder": "#8e44ad"
 };
@@ -316,7 +316,9 @@ function renderTable(chainObj, rootItem, rate) {
         <td>${Math.ceil(data.rate)}</td>
         <td>${outputPerMachine}</td>
         <td>${machines}</td>
-        <td>${data.building}</td>
+        <td style="background-color:${fillColor}; color:${textColor};">
+          ${data.building}
+        </td>
         <td>${inputs || "—"}</td>
         <td>${railsNeeded}</td>
       </tr>
@@ -483,6 +485,12 @@ function renderGraph(nodes, links, rootItem) {
   }
 
   for (const node of nodes) {
+    const fillColor = data.raw
+      ? "#f4d03f"
+      : MACHINE_COLORS[data.building] || "#ecf0f1";
+
+    const textColor = getTextColor(fillColor);
+
     const fillColor = node.raw
       ? "#f4d03f"
       : MACHINE_COLORS[node.building] || "#95a5a6";
@@ -531,10 +539,6 @@ function runCalculator() {
   const chainObj = expandChain(item, rate);
 
   renderTable(chainObj, item, rate);
-
-  const { nodes, links } = buildGraphData(chainObj.chain, item);
-  const graphSVG = renderGraph(nodes, links, item);
-  document.getElementById("graphArea").innerHTML = graphSVG;
 }
 
 // ===============================
