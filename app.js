@@ -475,10 +475,12 @@ function renderGraph(nodes, links, rootItem) {
           fill="${fillColor}" rx="3" ry="3" />
 
         <!-- Label text -->
-        <text x="${node.x}" y="${node.y - 30}"
+        <text x="${node.x}" y="${node.y + 4}"
               text-anchor="middle" font-size="12"
-              fill="${getTextColor(fillColor)}">
-          ${node.label}
+              fill="#ffffff"
+              paint-order="stroke"
+              stroke="#000000" stroke-width="1">
+          ${node.raw ? "" : Math.ceil(node.machines)}
         </text>
 
         <!-- Node circle -->
