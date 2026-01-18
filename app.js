@@ -287,46 +287,52 @@ function renderTable(chainObj, rootItem, rate) {
     .sort((a, b) => b - a);
 
   for (const tier of sortedTiers) {
-  html += `<tr><td colspan="7"><strong>--- Level ${tier} ---</strong></td></tr>`;
-  const rows = tierGroups[tier].sort((a, b) => a[0].localeCompare(b[0]));
+    html += `<tr><td colspan="7"><strong>--- Level ${tier} ---</strong></td></tr>`;
+    const rows = tierGroups[tier].sort((a, b) => a[0].localeCompare(b[0]));
 
-  for (const [item, data] of rows) {
-    if (data.raw) continue; // ⛔ Skip RAW items
+    for (const [item, data] of rows) {
+      if (data.raw) continue; // ⛔ Skip RAW items
 
-    let outputPerMachine = "—";
-    let machines = "—";
-    let railsNeeded = "—";
+      let outputPerMachine = "—";
+      let machines = "—";
+      let railsNeeded = "—";
 
-    if (!data.raw) {
-      const recipe = getRecipe(item);
-      if (recipe) {
-        outputPerMachine = Math.ceil((recipe.output * 60) / recipe.time); // ✅ integer-safe formula
+      const fillColor = data.raw
+        ? "#f4d03f"
+        : MACHINE_COLORS[data.building] || "#ecf0f1";
+
+      const textColor = getTextColor(fillColor);
+
+      if (!data.raw) {
+        const recipe = getRecipe(item);
+        if (recipe) {
+          outputPerMachine = Math.ceil((recipe.output * 60) / recipe.time); // ✅ integer-safe formula
+        }
+        machines = Math.ceil(data.machines);
+        railsNeeded = computeRailsNeeded(data.inputs, railSpeed);
       }
-      machines = Math.ceil(data.machines);
-      railsNeeded = computeRailsNeeded(data.inputs, railSpeed);
+
+      const inputs = Object.entries(data.inputs || {})
+        .map(([i, amt]) => `${i}: ${Math.ceil(amt)}/min`)
+        .join("<br>");
+
+      html += `
+        <tr>
+          <td>${item}</td>
+          <td>${Math.ceil(data.rate)}</td>
+          <td>${outputPerMachine}</td>
+          <td>${machines}</td>
+          <td style="background-color:${fillColor}; color:${textColor};">
+            ${data.building}
+          </td>
+          <td>${inputs || "—"}</td>
+          <td>${railsNeeded}</td>
+        </tr>
+      `;
     }
-
-    const inputs = Object.entries(data.inputs || {})
-      .map(([i, amt]) => `${i}: ${Math.ceil(amt)}/min`)
-      .join("<br>");
-
-    html += `
-      <tr>
-        <td>${item}</td>
-        <td>${Math.ceil(data.rate)}</td>
-        <td>${outputPerMachine}</td>
-        <td>${machines}</td>
-        <td style="background-color:${fillColor}; color:${textColor};">
-          ${data.building}
-        </td>
-        <td>${inputs || "—"}</td>
-        <td>${railsNeeded}</td>
-      </tr>
-    `;
   }
-}
 
-html += `</tbody></table>`;
+  html += `</tbody></table>`;
 
   // ===============================
   // MACHINES REQUIRED (total)
@@ -411,40 +417,6 @@ html += `</tbody></table>`;
 // ===============================
 // Graph Rendering
 // ===============================
-function buildGraphData(chain, rootItem) {
-  const depths = computeDepths(chain, rootItem);
-  const nodes = [];
-  const links = [];
-  const nodeMap = new Map();
-
-  for (const [item, data] of Object.entries(chain)) {
-    const depth = depths[item] ?? 0;
-
-    const node = {
-      id: item,
-      label: item,
-      depth,
-      raw: data.raw,
-      building: data.building,
-      machines: data.machines,
-      inputs: data.inputs
-    };
-
-    nodes.push(node);
-    nodeMap.set(item, node);
-  }
-
-  for (const [item, data] of Object.entries(chain)) {
-    for (const input of Object.keys(data.inputs || {})) {
-      if (nodeMap.has(input)) {
-        links.push({ from: item, to: input });
-      }
-    }
-  }
-
-  return { nodes, links };
-}
-
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
 
@@ -458,18 +430,18 @@ function renderGraph(nodes, links, rootItem) {
   const rowHeight = 90;
 
   for (const [depth, colNodes] of Object.entries(columns)) {
-  // Sort by number of outgoing links (more consumers = higher)
-  colNodes.sort((a, b) => {
-    const aOut = links.filter(l => l.to === a.id).length;
-    const bOut = links.filter(l => l.to === b.id).length;
-    return bOut - aOut;
-  });
+    // Sort by number of outgoing links (more consumers = higher)
+    colNodes.sort((a, b) => {
+      const aOut = links.filter(l => l.to === a.id).length;
+      const bOut = links.filter(l => l.to === b.id).length;
+      return bOut - aOut;
+    });
 
-  colNodes.forEach((node, i) => {
-    node.x = depth * colWidth + 100;
-    node.y = i * rowHeight + 100;
-  });
-}
+    colNodes.forEach((node, i) => {
+      node.x = depth * colWidth + 100;
+      node.y = i * rowHeight + 100;
+    });
+  }
 
   let svg = `<svg width="2000" height="2000" xmlns="http://www.w3.org/2000/svg">`;
 
@@ -485,12 +457,6 @@ function renderGraph(nodes, links, rootItem) {
   }
 
   for (const node of nodes) {
-    const fillColor = data.raw
-      ? "#f4d03f"
-      : MACHINE_COLORS[data.building] || "#ecf0f1";
-
-    const textColor = getTextColor(fillColor);
-
     const fillColor = node.raw
       ? "#f4d03f"
       : MACHINE_COLORS[node.building] || "#95a5a6";
