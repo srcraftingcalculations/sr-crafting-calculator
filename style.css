@@ -15,10 +15,23 @@ header {
   align-items: center;
 }
 
+#logoBox { 
+   background: #1e1e1e;
+   padding: 6px 10px;
+   border-radius: 6px;
+   display: inline-flex; 
+   align-items: center; 
+   justify-content: center;
+}
+
 #siteLogo { 
    height: 50px; 
    width: auto; 
-   margin-right: 15px;
+   display: block;
+}
+
+body:not(.dark) #logoBox { 
+   border: 1px solid #ccc;
 }
 
 #controls {
