@@ -60,14 +60,23 @@ function expandChain(item, targetRate) {
   const processed = {};
   const queue = [];
 
-  function enqueue(name, rate) {
-    pending[name] = (pending[name] || 0) + rate;
-    if (!processed[name]) queue.push(name);
-  }
-
   function trackExtractor(name, rate) {
     if (!extractorTotals[name]) extractorTotals[name] = 0;
     extractorTotals[name] += rate;
+  }
+
+  function enqueue(name, rate) {
+    const recipe = getRecipe(name);
+
+    // If it's RAW (no recipe), count it immediately every time
+    if (!recipe) {
+      trackExtractor(name, rate);
+      return;
+    }
+
+    // For crafted items, accumulate and queue as before
+    pending[name] = (pending[name] || 0) + rate;
+    if (!processed[name]) queue.push(name);
   }
 
   enqueue(item, targetRate);
@@ -81,20 +90,9 @@ function expandChain(item, targetRate) {
     const rate = pending[current];
     const recipe = getRecipe(current);
 
-    if (!recipe) {
-      chain[current] = {
-        rate,
-        raw: true,
-        building: "RAW",
-        machines: 0,
-        inputs: {}
-      };
-      trackExtractor(current, rate);
-      continue;
-    }
-
+    // At this point, recipe is guaranteed to exist (RAW handled in enqueue)
     const craftsPerMin = rate / recipe.output;
-    const outputPerMinPerMachine = (recipe.output / recipe.time) * 60;
+    const outputPerMinPerMachine = (recipe.output * 60) / recipe.time;
     const machines = Math.ceil(rate / outputPerMinPerMachine);
 
     chain[current] = {
