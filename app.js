@@ -97,24 +97,61 @@ function expandChain(item, targetRate, chain = {}) {
 
 
 // ===============================
-// Render Results
+// Render Results (TABLE VERSION)
 // ===============================
 function renderResults(chain, rootItem, rate) {
-  let text = `Production chain for ${rate} / min of ${rootItem}\n\n`;
+  let html = `
+    <h2>Production chain for ${rate} / min of ${rootItem}</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Rate (/min)</th>
+          <th>Crafts (/min)</th>
+          <th>Machines</th>
+          <th>Building</th>
+          <th>Inputs</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
 
   for (const [item, data] of Object.entries(chain)) {
     if (data.raw) {
-      text += `${item}: ${data.rate.toFixed(2)} / min (RAW)\n`;
+      html += `
+        <tr>
+          <td>${item}</td>
+          <td>${data.rate.toFixed(2)}</td>
+          <td>—</td>
+          <td>—</td>
+          <td>RAW</td>
+          <td>—</td>
+        </tr>
+      `;
     } else {
-      text += `${item}: ${data.rate.toFixed(2)} / min — ${data.crafts.toFixed(2)} crafts/min — ${data.machines.toFixed(2)} ${data.building}(s)\n`;
-      for (const [input, amt] of Object.entries(data.inputs)) {
-        text += `   - ${input}: ${amt.toFixed(2)} / min\n`;
-      }
+      let inputList = Object.entries(data.inputs)
+        .map(([input, amt]) => `${input}: ${amt.toFixed(2)}/min`)
+        .join("<br>");
+
+      html += `
+        <tr>
+          <td>${item}</td>
+          <td>${data.rate.toFixed(2)}</td>
+          <td>${data.crafts.toFixed(2)}</td>
+          <td>${data.machines.toFixed(2)}</td>
+          <td>${data.building}</td>
+          <td>${inputList}</td>
+        </tr>
+      `;
     }
-    text += `\n`;
   }
 
-  document.getElementById('outputArea').textContent = text;
+  html += `
+      </tbody>
+    </table>
+  `;
+
+  document.getElementById('outputArea').innerHTML = html;
 }
 
 
