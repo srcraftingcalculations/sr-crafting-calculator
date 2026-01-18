@@ -1,19 +1,13 @@
 // ===============================
-// Load Recipes (Live GitHub Fetch)
+// Load Recipes
 // ===============================
 async function loadRecipes() {
   const url = "https://srcraftingcalculations.github.io/sr-crafting-calculator/data/recipes.json";
 
   try {
     const response = await fetch(url, { cache: "no-store" });
-
-    if (!response.ok) {
-      throw new Error("Failed to fetch recipes.json");
-    }
-
-    const recipes = await response.json();
-    return recipes;
-
+    if (!response.ok) throw new Error("Failed to fetch recipes.json");
+    return await response.json();
   } catch (err) {
     console.error("Error loading recipes:", err);
     document.getElementById("outputArea").innerHTML =
@@ -22,13 +16,9 @@ async function loadRecipes() {
   }
 }
 
-let RECIPES = {};     // All recipe data
-let TIERS = {};       // Tier map from spreadsheet
+let RECIPES = {};
+let TIERS = {};
 
-
-// ===============================
-// Machine Speeds
-// ===============================
 const MACHINE_SPEED = {
   "Smelter": 1.0,
   "Fabricator": 1.0,
@@ -39,84 +29,249 @@ const MACHINE_SPEED = {
   "Pyro Forge": 1.0
 };
 
+const SPECIAL_EXTRACTORS = {
+  "Helium-3": 240,
+  "Goethite Ore": 400,
+  "Sulphur Ore": 240
+};
 
-// ===============================
-// Helper Functions
-// ===============================
-function getRecipe(item) {
-  return RECIPES[item] || null;
-}
-
-function craftsPerMinute(recipe) {
-  return 60 / recipe.time;
-}
-
-function outputPerMinute(recipe) {
-  return craftsPerMinute(recipe) * recipe.output;
-}
-
-function machinesNeeded(recipe, craftsPerMin) {
-  const speed = MACHINE_SPEED[recipe.building] || 1.0;
-  return craftsPerMin / speed;
-}
+const STANDARD_ORES = {
+  "Calcium Ore": true,
+  "Titanium Ore": true,
+  "Wolfram Ore": true
+};
 
 
 // ===============================
-// Chain Expansion Logic
+// Helpers
 // ===============================
-function expandChain(item, targetRate, chain = {}) {
-  const recipe = getRecipe(item);
+function getRecipe(name) {
+  return RECIPES[name] || null;
+}
 
-  // Raw resource
-  if (!recipe) {
-    chain[item] = chain[item] || {
-      rate: 0,
-      raw: true,
-      building: "RAW",
-      crafts: 0,
-      machines: 0,
+
+// ===============================
+// Chain Expansion (Formuoli-aligned)
+// ===============================
+function expandChain(item, targetRate) {
+  const chain = {};
+  const machineTotals = {};
+  const extractorTotals = {};
+
+  const pending = {};
+  const processed = {};
+  const queue = [];
+
+  function enqueue(name, rate) {
+    pending[name] = (pending[name] || 0) + rate;
+    if (!processed[name]) queue.push(name);
+  }
+
+  function trackExtractor(name, rate) {
+    if (!extractorTotals[name]) extractorTotals[name] = 0;
+    extractorTotals[name] += rate;
+  }
+
+  enqueue(item, targetRate);
+
+  while (queue.length > 0) {
+    // Highest tier first
+    queue.sort((a, b) => (TIERS[b] ?? 0) - (TIERS[a] ?? 0));
+    const current = queue.shift();
+    if (processed[current]) continue;
+    processed[current] = true;
+
+    const rate = pending[current];
+    const recipe = getRecipe(current);
+
+    // Raw resource
+    if (!recipe) {
+      chain[current] = {
+        rate,
+        raw: true,
+        building: "RAW",
+        machines: 0,
+        inputs: {}
+      };
+      trackExtractor(current, rate);
+      continue;
+    }
+
+    const craftsPerMin = rate / recipe.output;
+    const outputPerMinPerMachine = (recipe.output / recipe.time) * 60;
+    const machines = Math.ceil(rate / outputPerMinPerMachine);
+
+    chain[current] = {
+      rate,
+      raw: false,
+      building: recipe.building,
+      machines,
       inputs: {}
     };
-    chain[item].rate += targetRate;
-    return chain;
+
+    machineTotals[recipe.building] =
+      (machineTotals[recipe.building] || 0) + machines;
+
+    for (const [input, qty] of Object.entries(recipe.inputs)) {
+      const inputRate = craftsPerMin * qty;
+      chain[current].inputs[input] = inputRate;
+      enqueue(input, inputRate);
+    }
   }
 
-  const opm = outputPerMinute(recipe);
-  const craftsNeeded = targetRate / opm;
-
-  chain[item] = chain[item] || {
-    rate: 0,
-    raw: false,
-    building: recipe.building,
-    crafts: 0,
-    machines: 0,
-    inputs: {}
-  };
-
-  chain[item].rate += targetRate;
-  chain[item].crafts += craftsNeeded;
-  chain[item].machines += machinesNeeded(recipe, craftsNeeded);
-
-  for (const [inputItem, inputAmount] of Object.entries(recipe.inputs)) {
-    const inputRate = craftsNeeded * inputAmount;
-
-    chain[item].inputs[inputItem] =
-      (chain[item].inputs[inputItem] || 0) + inputRate;
-
-    expandChain(inputItem, inputRate, chain);
-  }
-
-  return chain;
+  return { chain, machineTotals, extractorTotals };
 }
 
 
 // ===============================
-// Graph Data Construction
+// Table Rendering (Formuoli-style)
+// ===============================
+function renderTable(chainObj, rootItem, rate) {
+  const { chain, machineTotals, extractorTotals } = chainObj;
+
+  let html = `
+    <h2>Production chain for ${rate} / min of ${rootItem}</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Qty/min</th>
+          <th>Output/machine</th>
+          <th>Machines</th>
+          <th>Machine Type</th>
+          <th>Inputs</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  const tierGroups = {};
+  for (const [item, data] of Object.entries(chain)) {
+    const tier = TIERS[item] ?? 0;
+    if (!tierGroups[tier]) tierGroups[tier] = [];
+    tierGroups[tier].push([item, data]);
+  }
+
+  const sortedTiers = Object.keys(tierGroups)
+    .map(Number)
+    .sort((a, b) => b - a); // highest → lowest
+
+  for (const tier of sortedTiers) {
+    html += `<tr><td colspan="6"><strong>--- Level ${tier} ---</strong></td></tr>`;
+    const rows = tierGroups[tier].sort((a, b) => a[0].localeCompare(b[0]));
+
+    for (const [item, data] of rows) {
+      let outputPerMachine = "—";
+      let machines = "—";
+
+      if (!data.raw) {
+        const recipe = getRecipe(item);
+        if (recipe) {
+          outputPerMachine = Math.ceil((recipe.output / recipe.time) * 60);
+        }
+        machines = Math.ceil(data.machines);
+      }
+
+      const inputs = Object.entries(data.inputs || {})
+        .map(([i, amt]) => `${i}: ${Math.ceil(amt)}/min`)
+        .join("<br>");
+
+      html += `
+        <tr>
+          <td>${item}</td>
+          <td>${Math.ceil(data.rate)}</td>
+          <td>${outputPerMachine}</td>
+          <td>${machines}</td>
+          <td>${data.building}</td>
+          <td>${inputs || "—"}</td>
+        </tr>
+      `;
+    }
+  }
+
+  html += `</tbody></table>`;
+
+  // ===============================
+  // MACHINES REQUIRED (total)
+  // ===============================
+  html += `
+    <h3>MACHINES REQUIRED (total)</h3>
+    <table>
+      <thead><tr><th>Machine Type</th><th>Count</th></tr></thead>
+      <tbody>
+        ${Object.entries(machineTotals)
+          .sort((a, b) => b[1] - a[1])
+          .map(([type, count]) => `
+            <tr><td>${type}</td><td>${Math.ceil(count)}</td></tr>
+          `).join("")}
+      </tbody>
+    </table>
+  `;
+
+  // ===============================
+  // EXTRACTION REQUIRED
+  // ===============================
+  html += `
+    <h3>EXTRACTION REQUIRED (v2 rails @ 240/min)</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Resource</th>
+          <th>Impure</th>
+          <th>Normal</th>
+          <th>Pure</th>
+          <th>Qty/min</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  const sortedExtractors = Object.entries(extractorTotals)
+    .filter(([_, qty]) => qty > 0)
+    .sort((a, b) => b[1] - a[1]);
+
+  for (const [resource, qty] of sortedExtractors) {
+    const rounded = Math.ceil(qty);
+
+    if (SPECIAL_EXTRACTORS[resource]) {
+      const normal = Math.ceil(rounded / SPECIAL_EXTRACTORS[resource]);
+      html += `
+        <tr>
+          <td>${resource}</td>
+          <td>—</td>
+          <td>${normal}</td>
+          <td>—</td>
+          <td>${rounded}</td>
+        </tr>
+      `;
+    } else {
+      const impure = Math.ceil(rounded / 60);
+      const normal = Math.ceil(rounded / 120);
+      const pure = Math.ceil(rounded / 240);
+      html += `
+        <tr>
+          <td>${resource}</td>
+          <td>${impure}</td>
+          <td>${normal}</td>
+          <td>${pure}</td>
+          <td>${rounded}</td>
+        </tr>
+      `;
+    }
+  }
+
+  html += `</tbody></table>`;
+
+  document.getElementById("outputArea").innerHTML = html;
+}
+
+
+// ===============================
+// Graph Data + Rendering
 // ===============================
 function buildGraphData(chain, rootItem) {
   const nodes = [];
   const links = [];
-
   const nodeMap = new Map();
 
   for (const [item, data] of Object.entries(chain)) {
@@ -135,7 +290,7 @@ function buildGraphData(chain, rootItem) {
 
   for (const [item, data] of Object.entries(chain)) {
     if (!data.raw) {
-      for (const inputItem of Object.keys(data.inputs)) {
+      for (const inputItem of Object.keys(data.inputs || {})) {
         if (nodeMap.has(inputItem)) {
           links.push({ from: item, to: inputItem });
         }
@@ -146,10 +301,6 @@ function buildGraphData(chain, rootItem) {
   return { nodes, links };
 }
 
-
-// ===============================
-// Graph Rendering
-// ===============================
 function renderGraph(graphData, rootItem) {
   const container = document.getElementById('graphArea');
   if (!container) return;
@@ -203,8 +354,8 @@ function renderGraph(graphData, rootItem) {
       <g>
         <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}" fill="${fill}" stroke="${stroke}" stroke-width="2" />
         <text x="${node.x}" y="${node.y - 30}" text-anchor="middle" font-size="12">${node.label}</text>
-        <text x="${node.x}" y="${node.y + 4}" text-anchor="middle" font-size="10">${node.rate.toFixed(1)}/m</text>
-        <text x="${node.x}" y="${node.y + 18}" text-anchor="middle" font-size="9">${node.machines.toFixed(2)}x</text>
+        <text x="${node.x}" y="${node.y + 4}" text-anchor="middle" font-size="10">${Math.ceil(node.rate)}/m</text>
+        <text x="${node.x}" y="${node.y + 18}" text-anchor="middle" font-size="9">${Math.ceil(node.machines)}x</text>
       </g>
     `;
   });
@@ -215,193 +366,23 @@ function renderGraph(graphData, rootItem) {
 
 
 // ===============================
-// MACHINE TOTALS (rounded UP)
-// ===============================
-function computeMachineTotals(chain) {
-  const totals = {};
-
-  for (const data of Object.values(chain)) {
-    if (!data.raw && data.machines > 0) {
-      const type = data.building;
-      totals[type] = (totals[type] || 0) + data.machines;
-    }
-  }
-
-  return Object.entries(totals)
-    .sort((a, b) => b[1] - a[1])
-    .map(([type, count]) => ({ type, count: Math.ceil(count) }));
-}
-
-
-// ===============================
-// EXTRACTION REQUIRED (rounded UP)
-// ===============================
-function computeExtractionBreakdown(chain) {
-  const railRate = 240;
-  const breakdown = [];
-
-  for (const [item, data] of Object.entries(chain)) {
-    if (data.raw && data.rate > 0) {
-      const qty = Math.ceil(data.rate);
-
-      breakdown.push({
-        item,
-        qty,
-        impure: Math.ceil(qty / (railRate * 0.5)),
-        normal: Math.ceil(qty / railRate),
-        pure: Math.ceil(qty / (railRate * 2))
-      });
-    }
-  }
-
-  return breakdown.sort((a, b) => b.qty - a.qty);
-}
-
-
-// ===============================
-// Table Rendering (Tier-Based)
-// ===============================
-function renderTable(chain, rootItem, rate) {
-  let html = `
-    <h2>Production chain for ${rate} / min of ${rootItem}</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Item</th>
-          <th>Qty/min</th>
-          <th>Output/machine</th>
-          <th>Machines</th>
-          <th>Machine Type</th>
-          <th>Inputs</th>
-        </tr>
-      </thead>
-      <tbody>
-  `;
-
-  // Group by tier
-  const tierGroups = {};
-  for (const [item, data] of Object.entries(chain)) {
-    const tier = TIERS[item] ?? 0;
-    if (!tierGroups[tier]) tierGroups[tier] = [];
-    tierGroups[tier].push([item, data]);
-  }
-
-  // Sort highest → lowest
-  const sortedTiers = Object.keys(tierGroups)
-    .map(Number)
-    .sort((a, b) => b - a);
-
-  for (const tier of sortedTiers) {
-    html += `
-      <tr><td colspan="6"><strong>--- Level ${tier} ---</strong></td></tr>
-    `;
-
-    const rows = tierGroups[tier].sort((a, b) => a[0].localeCompare(b[0]));
-
-    for (const [item, data] of rows) {
-      if (data.raw) {
-        html += `
-          <tr>
-            <td>${item}</td>
-            <td>${Math.ceil(data.rate)}</td>
-            <td>—</td>
-            <td>—</td>
-            <td>RAW</td>
-            <td>—</td>
-          </tr>
-        `;
-      } else {
-        const outputPerMachine = outputPerMinute(getRecipe(item));
-        const inputList = Object.entries(data.inputs)
-          .map(([input, amt]) => `${input}: ${amt.toFixed(2)}/min`)
-          .join("<br>");
-
-        html += `
-          <tr>
-            <td>${item}</td>
-            <td>${Math.ceil(data.rate)}</td>
-            <td>${outputPerMachine.toFixed(2)}</td>
-            <td>${Math.ceil(data.machines)}</td>
-            <td>${data.building}</td>
-            <td>${inputList}</td>
-          </tr>
-        `;
-      }
-    }
-  }
-
-  html += `
-      </tbody>
-    </table>
-  `;
-
-  // ===============================
-  // MACHINES REQUIRED SUMMARY
-  // ===============================
-  const machineTotals = computeMachineTotals(chain);
-  html += `
-    <h3>MACHINES REQUIRED (total)</h3>
-    <table>
-      <thead>
-        <tr><th>Machine Type</th><th>Count</th></tr>
-      </thead>
-      <tbody>
-        ${machineTotals.map(m => `
-          <tr>
-            <td>${m.type}</td>
-            <td>${m.count}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-
-  // ===============================
-  // EXTRACTION REQUIRED SUMMARY
-  // ===============================
-  const extraction = computeExtractionBreakdown(chain);
-  html += `
-    <h3>EXTRACTION REQUIRED (v2 rails @ 240/min)</h3>
-    <table>
-      <thead>
-        <tr>
-          <th>Resource</th>
-          <th>Impure</th>
-          <th>Normal</th>
-          <th>Pure</th>
-          <th>Qty/min</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${extraction.map(e => `
-          <tr>
-            <td>${e.item}</td>
-            <td>${e.impure}</td>
-            <td>${e.normal}</td>
-            <td>${e.pure}</td>
-            <td>${e.qty}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-
-  document.getElementById('outputArea').innerHTML = html;
-}
-
-
-// ===============================
 // Calculator Trigger
 // ===============================
 function runCalculator() {
   const item = document.getElementById('itemSelect').value;
   const rate = parseFloat(document.getElementById('rateInput').value);
 
-  const chain = expandChain(item, rate);
+  if (!item || isNaN(rate) || rate <= 0) {
+    document.getElementById("outputArea").innerHTML =
+      "<p style='color:red;'>Please select an item and enter a valid rate.</p>";
+    return;
+  }
 
-  renderTable(chain, item, rate);
+  const chainObj = expandChain(item, rate);
 
-  const graphData = buildGraphData(chain, item);
+  renderTable(chainObj, item, rate);
+
+  const graphData = buildGraphData(chainObj.chain, item);
   renderGraph(graphData, item);
 }
 
@@ -411,17 +392,19 @@ function runCalculator() {
 // ===============================
 function setupDarkMode() {
   const toggle = document.getElementById("darkModeToggle");
+  if (!toggle) return;
 
   const saved = localStorage.getItem("darkMode");
   if (saved === "true") {
     document.body.classList.add("dark");
     toggle.textContent = "☀️ Light Mode";
+  } else {
+    toggle.textContent = "🌙 Dark Mode";
   }
 
   toggle.addEventListener("click", () => {
     const isDark = document.body.classList.toggle("dark");
     localStorage.setItem("darkMode", isDark);
-
     toggle.textContent = isDark ? "☀️ Light Mode" : "🌙 Dark Mode";
   });
 }
@@ -438,17 +421,22 @@ async function init() {
   TIERS = data._tiers || {};
 
   const itemSelect = document.getElementById('itemSelect');
-  Object.keys(RECIPES)
-    .filter(k => k !== "_tiers")
-    .sort()
-    .forEach(item => {
-      const option = document.createElement('option');
-      option.value = item;
-      option.textContent = item;
-      itemSelect.appendChild(option);
-    });
+  if (itemSelect) {
+    Object.keys(RECIPES)
+      .filter(k => k !== "_tiers")
+      .sort()
+      .forEach(item => {
+        const option = document.createElement('option');
+        option.value = item;
+        option.textContent = item;
+        itemSelect.appendChild(option);
+      });
+  }
 
-  document.getElementById("calcButton").addEventListener("click", runCalculator);
+  const calcButton = document.getElementById("calcButton");
+  if (calcButton) {
+    calcButton.addEventListener("click", runCalculator);
+  }
 }
 
 init();
