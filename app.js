@@ -551,6 +551,17 @@ function runCalculator() {
   const chainObj = expandChain(item, rate);
 
   renderTable(chainObj, item, rate);
+
+  // ⭐ Update URL with shareable parameters
+  const rail = document.getElementById("railSelect").value;
+
+  const params = new URLSearchParams({
+    item,
+    rate,
+    rail
+  });
+
+  history.replaceState(null, "", "?" + params.toString());
 }
 
 // ===============================
@@ -602,11 +613,39 @@ async function init() {
       });
   }
 
-  const calcButton = document.getElementById("calcButton");
-  if (calcButton) {
-    calcButton.addEventListener("click", runCalculator);
+  // ⭐ Auto-load shared calculation if URL contains parameters
+  const params = new URLSearchParams(window.location.search);
+
+  const sharedItem = params.get("item");
+  const sharedRate = params.get("rate");
+  const sharedRail = params.get("rail");
+
+  if (sharedItem) itemSelect.value = sharedItem;
+  if (sharedRate) document.getElementById("rateInput").value = sharedRate;
+  if (sharedRail) document.getElementById("railSelect").value = sharedRail;
+
+  // If item + rate exist, auto-run the calculator
+  if (sharedItem && sharedRate) {
+    runCalculator();
   }
 
+  // ⭐ Calculate button
+  const calcButton = document.getElementById("calcButton");
+  if (calcButton) {
+    calcButton.addEventListener("click", () => {
+      runCalculator();
+
+      // ⭐ Update URL with shareable parameters
+      const item = document.getElementById("itemSelect").value;
+      const rate = document.getElementById("rateInput").value;
+      const rail = document.getElementById("railSelect").value;
+
+      const newParams = new URLSearchParams({ item, rate, rail });
+      history.replaceState(null, "", "?" + newParams.toString());
+    });
+  }
+
+  // ⭐ Share button
   const shareButton = document.getElementById("shareButton");
   if (shareButton) {
     shareButton.addEventListener("click", () => {
