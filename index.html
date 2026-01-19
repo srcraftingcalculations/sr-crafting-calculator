@@ -14,18 +14,18 @@
 <body>
 
   <!-- ============================
-       HEADER WITH RESPONSIVE BANNER
+       NEW RESPONSIVE HEADER
   ============================= -->
   <header>
     <!-- Banner image that scales with width -->
-    <img id="headerBanner" src="data/SRCC_Banner_2.png" alt="Raptura Banner" />
+    <img id="headerBanner" src="data/raptura-banner.png" alt="Raptura Banner" />
 
     <!-- Logo -->
     <div id="logoBox">
       <img src="data/starrupture.png" alt="Logo" id="siteLogo" />
     </div>
 
-    <!-- Title -->
+    <!-- Title Image -->
     <div id="titleBox">
       <img src="data/SRCC_Logo.png" alt="StarRupture Crafting Calculator" id="siteTitleImage" />
     </div>
@@ -35,52 +35,61 @@
   </header>
 
 
+  <!-- ⭐ Download Offline -->
+  <section id="downloadOffline" style="text-align:center; margin:40px 0;">
+    <a href="https://docs.google.com/spreadsheets/d/1yhyF4NxQbiEYIboEisqoxD_YTs9TPU8eE5EuXaqkKps/copy"
+       target="_blank"
+       style="font-size:16px; text-decoration:none; padding:10px 18px; border-radius:6px;
+              background:#72a4f2; color:white; font-weight:600;">
+      Download Offline Spreadsheet Version
+    </a>
+  </section>
+
+
   <!-- ============================
-       CONTROLS
+       CONTROLS (unchanged)
   ============================= -->
-  <div id="controls">
-    <button id="calculateBtn">Calculate</button>
-    <button id="resetBtn">Reset</button>
-  </div>
+  <section id="controls">
+    <label for="itemSelect">Item:</label>
+    <select id="itemSelect"></select>
+
+    <label for="rateInput">Rate (/min):</label>
+    <input type="number" id="rateInput" value="60" min="0" step="1" />
+
+    <label for="railSelect">Rail Type:</label>
+    <select id="railSelect">
+      <option value="120">v1 (120/min)</option>
+      <option value="240" selected>v2 (240/min)</option>
+      <option value="480">v3 (480/min)</option>
+    </select>
+
+    <button id="calcButton">Calculate</button>
+  </section>
 
 
   <!-- ============================
-       TABLE AREA
+       OUTPUT + GRAPH (unchanged)
   ============================= -->
-  <table id="resultsTable">
-    <thead>
-      <tr>
-        <th>Item</th>
-        <th>Quantity</th>
-        <th>Materials</th>
-      </tr>
-    </thead>
-    <tbody>
-      <!-- JS will populate -->
-    </tbody>
-  </table>
+  <section id="outputArea"></section>
+  <section id="graphArea"></section>
 
 
   <!-- ============================
-       GRAPH AREA
-  ============================= -->
-  <div id="graphArea"></div>
-
-
-  <!-- ============================
-       DARK MODE SCRIPT
-  ============================= -->
-  <script>
-    const toggle = document.getElementById("darkModeToggle");
-    toggle.addEventListener("click", () => {
-      document.body.classList.toggle("dark");
-    });
-  </script>
-
-  <!-- ============================
-       MAIN APP SCRIPT
+       MAIN SCRIPT
   ============================= -->
   <script src="app.js"></script>
+
+
+  <!-- ⭐ Ko-fi Floating Support Button -->
+  <script src="https://storage.ko-fi.com/cdn/scripts/overlay-widget.js"></script>
+  <script>
+    kofiWidgetOverlay.draw('sr_craftingcalculations', {
+      'type': 'floating-chat',
+      'floating-chat.donateButton.text': 'Support',
+      'floating-chat.donateButton.background-color': '#29abe0',
+      'floating-chat.donateButton.text-color': '#fff'
+    });
+  </script>
 
 </body>
 </html>
