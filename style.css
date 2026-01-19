@@ -9,44 +9,72 @@ body {
   transition: background 0.3s, color 0.3s;
 }
 
+/* Header layout: logo left, centered title image, controls right */
 header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  box-sizing: border-box;
 }
 
-#logoBox { 
-   background: #1e1e1e;
-   padding: 6px 10px;
-   border-radius: 6px;
-   display: inline-flex; 
-   align-items: center; 
-   justify-content: center;
+/* Logo box kept compact and visually consistent */
+#logoBox {
+  background: #1e1e1e;
+  padding: 6px 10px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
 }
 
-#siteLogo { 
-   height: 50px; 
-   width: auto; 
-   display: block;
+/* Logo sizing */
+#siteLogo {
+  height: 50px;
+  width: auto;
+  display: block;
 }
 
-body:not(.dark) #logoBox { 
-   border: 1px solid #ccc;
+/* Title box grows to fill center space and centers its content */
+#titleBox {
+  flex: 1 1 auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 0; /* prevents overflow in narrow viewports */
 }
 
+/* Title image sizing and behavior */
+#siteTitleImage {
+  max-height: 56px; /* adjust as needed */
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+/* Controls area (right side) */
 #controls {
   margin: 20px 0;
   display: flex;
   gap: 10px;
   align-items: center;
+  flex: 0 0 auto;
 }
 
+/* Dark mode toggle button sizing so center stays visually centered */
+#darkModeToggle,
 button {
   padding: 6px 12px;
   cursor: pointer;
   border: 1px solid #444;
   background: #ddd;
   transition: background 0.3s;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 button:hover {
@@ -94,13 +122,23 @@ body.dark {
   color: #ddd;
 }
 
-body.dark button {
+body.dark #logoBox {
+  border: 1px solid #333;
+}
+
+body:not(.dark) #logoBox {
+  border: 1px solid #ccc;
+}
+
+body.dark button,
+body.dark #darkModeToggle {
   background: #444;
   color: #eee;
   border-color: #666;
 }
 
-body.dark button:hover {
+body.dark button:hover,
+body.dark #darkModeToggle:hover {
   background: #555;
 }
 
@@ -120,4 +158,21 @@ body.dark table td {
 
 body.dark #graphArea svg text {
   fill: #ddd;
+}
+
+/* ============================
+   Responsive adjustments
+============================ */
+@media (max-width: 900px) {
+  #siteLogo { height: 44px; }
+  #siteTitleImage { max-height: 48px; }
+  #darkModeToggle, button { height: 36px; padding: 6px 10px; }
+}
+
+@media (max-width: 600px) {
+  body { margin: 12px; }
+  #siteLogo { height: 36px; }
+  #siteTitleImage { max-height: 40px; }
+  #darkModeToggle, button { height: 34px; font-size: 14px; padding: 4px 8px; }
+  header { gap: 8px; }
 }
