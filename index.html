@@ -1,68 +1,304 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <link rel="icon" href="data/SRCC_Icon.png" type="image/png">
-  <meta charset="UTF-8" />
+  <meta charset="utf-8" />
   <title>StarRupture Crafting Calculator</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data/SRCC_Icon.png" type="image/png">
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    /* ============================
+       Base Layout
+    ============================ */
+    :root{
+      --bg: #f5f5f5;
+      --fg: #222;
+      --muted-border: #ccc;
+      --header-bg: #fff0;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: var(--bg);
+      color: var(--fg);
+      transition: background 0.3s, color 0.3s;
+    }
+
+    /* Header layout: logo left, centered title image, controls right */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 6px 0;
+      box-sizing: border-box;
+    }
+
+    /* Logo box kept compact and visually consistent */
+    #logoBox {
+      background: #1e1e1e;
+      padding: 6px 10px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 88px; /* fixed width to keep center visually centered */
+      min-width: 72px;
+    }
+
+    /* Logo sizing */
+    #siteLogo {
+      height: 64px;
+      width: auto;
+      display: block;
+    }
+
+    /* Title box grows to fill center space and centers its content */
+    #titleBox {
+      flex: 1 1 auto;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-width: 0; /* prevents overflow in narrow viewports */
+    }
+
+    /* Title image sizing and behavior (larger by default) */
+    #siteTitleImage {
+      max-height: 110px; /* increased size */
+      width: auto;
+      max-width: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    /* Controls area (right side) */
+    #controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex: 0 0 88px; /* fixed width to balance logo */
+      justify-content: center;
+      min-width: 72px;
+    }
+
+    /* Dark mode toggle button sizing so center stays visually centered */
+    #darkModeToggle,
+    button {
+      padding: 6px 12px;
+      cursor: pointer;
+      border: 1px solid #444;
+      background: #ddd;
+      transition: background 0.3s;
+      height: 48px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      font-size: 16px;
+    }
+
+    button:hover {
+      background: #ccc;
+    }
+
+    /* ============================
+       Table Styling
+    ============================= */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      color: #222;
+      margin-top: 20px;
+    }
+
+    table th {
+      background: #2f4f4f;
+      color: white;
+      padding: 8px;
+    }
+
+    table td {
+      padding: 6px 10px;
+      border: 1px solid #ccc;
+    }
+
+    /* ============================
+       Graph Area
+    ============================= */
+    #graphArea {
+      margin-top: 40px;
+    }
+
+    #graphArea svg text {
+      fill: #333;
+    }
+
+    /* ============================
+       DARK MODE
+    ============================= */
+    body.dark {
+      background: #1e1e1e;
+      color: #ddd;
+    }
+
+    body.dark #logoBox {
+      border: 1px solid #333;
+      background: #111;
+    }
+
+    body:not(.dark) #logoBox {
+      border: 1px solid var(--muted-border);
+    }
+
+    body.dark button,
+    body.dark #darkModeToggle {
+      background: #444;
+      color: #eee;
+      border-color: #666;
+    }
+
+    body.dark button:hover,
+    body.dark #darkModeToggle:hover {
+      background: #555;
+    }
+
+    body.dark table {
+      background: #2a2a2a;
+      color: #ddd;
+    }
+
+    body.dark table th {
+      background: #444;
+      color: #fff;
+    }
+
+    body.dark table td {
+      border: 1px solid #555;
+    }
+
+    body.dark #graphArea svg text {
+      fill: #ddd;
+    }
+
+    /* ============================
+       Responsive adjustments
+    ============================= */
+    @media (max-width: 900px) {
+      #siteLogo { height: 56px; }
+      #siteTitleImage { max-height: 88px; }
+      #darkModeToggle, button { height: 44px; padding: 6px 10px; }
+      #logoBox, #controls { flex: 0 0 72px; min-width: 56px; }
+    }
+
+    @media (max-width: 600px) {
+      body { margin: 12px; }
+      #siteLogo { height: 44px; }
+      #siteTitleImage { max-height: 56px; }
+      #darkModeToggle, button { height: 36px; font-size: 14px; padding: 4px 8px; }
+      header { gap: 8px; }
+      #logoBox, #controls { flex: 0 0 56px; min-width: 48px; }
+    }
+  </style>
 </head>
 
 <body>
-
-  <header class="site-header">
-    <div id="logoBox">
-      <img src="data/starrupture.png" alt="StarRupture logo" id="siteLogo" />
+  <header>
+    <div id="logoBox" aria-hidden="true">
+      <img id="siteLogo" src="data/starrupture.png" alt="StarRupture logo" />
     </div>
 
     <div id="titleBox" aria-label="Site title">
-      <img src="data/SRCC_Banner.png" alt="StarRupture Crafting Calculator" id="siteTitleImage" />
+      <!-- Replace these paths with your actual images. Provide both light and dark variants if desired. -->
+      <img id="siteTitleImage" src="data/header-title.png" alt="StarRupture Crafting Calculator" />
     </div>
 
-    <button id="darkModeToggle" aria-pressed="false">🌙 Dark Mode</button>
+    <div id="controls">
+      <button id="darkModeToggle" aria-pressed="false" aria-label="Toggle dark mode">🌙</button>
+    </div>
   </header>
 
-  <section id="controls">
-    <label for="itemSelect">Item:</label>
-    <select id="itemSelect"></select>
+  <!-- Example content placeholders -->
+  <div id="controls" style="margin-top:18px;">
+    <button id="exampleBtn">Example Action</button>
+  </div>
 
-    <label for="rateInput">Rate (/min):</label>
-    <input type="number" id="rateInput" value="60" min="0" step="1" />
+  <main>
+    <section id="graphArea">
+      <!-- Graph / content goes here -->
+    </section>
 
-    <label for="railSelect">Rail Type:</label>
-    <select id="railSelect">
-      <option value="120">v1 (120/min)</option>
-      <option value="240" selected>v2 (240/min)</option>
-      <option value="480">v3 (480/min)</option>
-    </select>
+    <section id="dataTable">
+      <table>
+        <thead>
+          <tr><th>Item</th><th>Value</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Example</td><td>42</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
 
-    <button id="calcButton">Calculate</button>
-  </section>
-
-  <section id="outputArea"></section>
-
-  <section id="graphArea"></section>
-
-  <section id="downloadOffline" style="text-align:center; margin:40px 0;">
-  <a href="https://docs.google.com/spreadsheets/d/1yhyF4NxQbiEYIboEisqoxD_YTs9TPU8eE5EuXaqkKps/copy"
-     target="_blank"
-     style="font-size:16px; text-decoration:none; padding:10px 18px; border-radius:6px;
-            background:#72a4f2; color:white; font-weight:600;">
-    Download Offline Spreadsheet Version
-  </a>
-  </section>
-
-  <script src="app.js"></script>
-
-  <!-- ⭐ Ko-fi Floating Support Button -->
-  <script src="https://storage.ko-fi.com/cdn/scripts/overlay-widget.js"></script>
   <script>
-    kofiWidgetOverlay.draw('sr_craftingcalculations', {
-      'type': 'floating-chat',
-      'floating-chat.donateButton.text': 'Support',
-      'floating-chat.donateButton.background-color': '#29abe0',
-      'floating-chat.donateButton.text-color': '#fff'
-    });
-  </script>
+    (function () {
+      const body = document.body;
+      const toggle = document.getElementById("darkModeToggle");
+      const titleImg = document.getElementById("siteTitleImage");
 
+      // Optional: provide alternate images for dark mode by naming convention
+      // e.g., data/header-title.png and data/header-title-dark.png
+      const lightSrc = titleImg.getAttribute("src");
+      const darkSrcCandidate = lightSrc.replace(/(\.[a-zA-Z]+)$/, "-dark$1");
+
+      // Utility: check if a URL exists (quick HEAD via fetch). If not available, fallback silently.
+      async function urlExists(url) {
+        try {
+          const res = await fetch(url, { method: "HEAD", cache: "no-store" });
+          return res.ok;
+        } catch (e) {
+          return false;
+        }
+      }
+
+      // Initialize dark mode state from localStorage
+      const stored = localStorage.getItem("srcc-dark");
+      if (stored === "true") {
+        body.classList.add("dark");
+        toggle.setAttribute("aria-pressed", "true");
+        // attempt to swap image to dark variant if present
+        (async () => {
+          if (darkSrcCandidate && await urlExists(darkSrcCandidate)) {
+            titleImg.src = darkSrcCandidate;
+          }
+        })();
+      } else {
+        toggle.setAttribute("aria-pressed", "false");
+      }
+
+      // Toggle handler
+      toggle.addEventListener("click", async function () {
+        const isDark = body.classList.toggle("dark");
+        toggle.setAttribute("aria-pressed", isDark ? "true" : "false");
+        localStorage.setItem("srcc-dark", isDark ? "true" : "false");
+
+        // Swap title image if dark variant exists
+        if (isDark) {
+          if (darkSrcCandidate && await urlExists(darkSrcCandidate)) {
+            titleImg.src = darkSrcCandidate;
+          }
+        } else {
+          titleImg.src = lightSrc;
+        }
+      });
+
+      // Accessibility: allow keyboard toggle via Enter/Space
+      toggle.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          toggle.click();
+        }
+      });
+    })();
+  </script>
 </body>
 </html>
