@@ -413,17 +413,16 @@ function renderTable(chainObj, rootItem, rate) {
 
 
 // ===============================
-// Graph Rendering (Bezier Version)
+// Graph Rendering
 // ===============================
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
-
   // Detect theme for adaptive halo text
   const isDark = document.body.classList.contains("dark-mode");
-  const labelFill = isDark ? "#ffffff" : "#000000";
-  const labelStroke = isDark ? "#000000" : "#ffffff";
 
-  // Group nodes by depth
+  const labelFill = isDark ? "#ffffff" : "#000000";   // text color
+  const labelStroke = isDark ? "#000000" : "#ffffff"; // halo outline
+
   const columns = {};
   for (const node of nodes) {
     if (!columns[node.depth]) columns[node.depth] = [];
@@ -433,8 +432,8 @@ function renderGraph(nodes, links, rootItem) {
   const colWidth = 200;
   const rowHeight = 90;
 
-  // Position nodes
   for (const [depth, colNodes] of Object.entries(columns)) {
+    // Sort by number of outgoing links (more consumers = higher)
     colNodes.sort((a, b) => {
       const aOut = links.filter(l => l.to === a.id).length;
       const bOut = links.filter(l => l.to === b.id).length;
@@ -447,71 +446,42 @@ function renderGraph(nodes, links, rootItem) {
     });
   }
 
-  // -----------------------------------------
-  // Prevent overlapping lines by staggering
-  // siblings feeding the same target
-  // -----------------------------------------
-  for (const link of links) {
-    const from = nodes.find(n => n.id === link.from);
-    const to = nodes.find(n => n.id === link.to);
-
-    const siblings = links.filter(l => l.to === to.id);
-    const index = siblings.findIndex(l => l.from === from.id);
-
-    // Center offsets around original Y
-    const spacing = 14;
-    const mid = (siblings.length - 1) / 2;
-    from.y += (index - mid) * spacing;
-  }
-
-  // Compute dynamic SVG size
+  // Compute dynamic SVG size based on node positions
   const maxX = Math.max(...nodes.map(n => n.x));
   const maxY = Math.max(...nodes.map(n => n.y));
-  const svgWidth = maxX + 200;
-  const svgHeight = maxY + 200;
+
+  const svgWidth = maxX + 200;   // padding on the right
+  const svgHeight = maxY + 200;  // padding below the lowest node
 
   let svg = `<svg width="${svgWidth}" height="${svgHeight}" xmlns="http://www.w3.org/2000/svg">`;
 
-  // -----------------------------------------
-  // Draw curved links (clean Bezier curves)
-  // -----------------------------------------
   for (const link of links) {
     const from = nodes.find(n => n.id === link.from);
     const to = nodes.find(n => n.id === link.to);
 
-    // Gentle horizontal curve
-    const cx1 = from.x + 60;
-    const cy1 = from.y;
-    const cx2 = to.x - 60;
-    const cy2 = to.y;
-
     svg += `
-      <path d="
-        M ${from.x},${from.y}
-        C ${cx1},${cy1}
-          ${cx2},${cy2}
-          ${to.x},${to.y}
-      " stroke="#999" stroke-width="2" fill="none" />
+      <line x1="${from.x}" y1="${from.y}"
+            x2="${to.x}" y2="${to.y}"
+            stroke="#999" stroke-width="2" />
     `;
   }
 
-  // -----------------------------------------
-  // Draw nodes
-  // -----------------------------------------
   for (const node of nodes) {
     const fillColor = node.raw
-      ? "#f4d03f"
+      ? "#f4d03f" // RAW
       : MACHINE_COLORS[node.building] || "#95a5a6";
 
     const strokeColor = "#2c3e50";
+
+    const textColor = getTextColor(fillColor);
 
     svg += `
       <g>
         <!-- Label text with halo -->
         <text x="${node.x}" y="${node.y - 30}"
               text-anchor="middle" font-size="12" font-weight="600"
-              fill="${labelFill}"
-              stroke="${labelStroke}" stroke-width="0.6"
+              fill="#ffffff"
+              stroke="#000000" stroke-width="0.6"
               paint-order="stroke">
           ${node.label}
         </text>
@@ -526,11 +496,11 @@ function renderGraph(nodes, links, rootItem) {
                  fill="${fillColor}" rx="3" ry="3" />`
         )}
 
-        <!-- Machine count text -->
+        <!-- Machine count text with halo -->
         <text x="${node.x}" y="${node.y + 4}"
               text-anchor="middle" font-size="12" font-weight="600"
-              fill="${labelFill}"
-              stroke="${labelStroke}" stroke-width="0.6"
+              fill="#ffffff"
+              stroke="#000000" stroke-width="0.6"
               paint-order="stroke">
           ${node.raw ? "" : Math.ceil(node.machines)}
         </text>
