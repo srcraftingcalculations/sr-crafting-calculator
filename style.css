@@ -11,8 +11,18 @@ body {
 
 header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+}
+
+#logoBox img {
+  height: 60px;
+}
+
+#titleBox img {
+  height: 60px;
+  object-fit: contain;
 }
 
 #logoBox { 
