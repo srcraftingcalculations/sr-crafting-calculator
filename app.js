@@ -334,24 +334,17 @@ function buildGraphData(chain, rootItem) {
 })();
 
 /* ===============================
-   renderGraph (adds single bypass helper dot per depth when needed)
-   - All previous behaviors preserved:
-     * alphabetical columns
-     * BBM aligned with smelter outputs
-     * leftmost raw -> smelter/BBM node-to-node lines unchanged
-     * anchors, connectors, spines unchanged
-   - NEW: For each depth column, if any node in that column is used by a consumer
-     more than one depth level to the right (consumer.depth - source.depth > 1),
-     draw exactly one small helper "bypass" dot above that column's output row.
-     This dot is purely visual (no extra connectors or edge rewiring).
-   - This function returns the full SVG markup for the graph.
+   renderGraph (final fixes)
+   - Removes any right helper dot for final outputs (maxDepth)
+   - Bypass dot placed at same vertical offset as top anchors and uses same color
+   - Excludes final-output nodes from bypass detection
+   - Preserves previous spine/anchor/connector logic
    =============================== */
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
   const ANCHOR_RADIUS = 5;
   const ANCHOR_HIT_RADIUS = 12;
   const ANCHOR_OFFSET = 18; // spacing from node edge to helper dot
-  const BYPASS_OFFSET = 14; // vertical offset above top output anchor for bypass dot
   const isDark = isDarkMode();
 
   const BBM_ID = 'Basic Building Material';
@@ -423,14 +416,14 @@ function renderGraph(nodes, links, rootItem) {
 
   // --- Compute per-depth bypass dot requirement ---
   // For each depth, if any node in that depth is used by a consumer more than one depth to the right,
-  // mark that depth as needing a bypass dot.
+  // mark that depth as needing a bypass dot. Exclude final-output nodes (depth === maxDepth).
   const depthsSorted = Object.keys(columns).map(d => Number(d)).sort((a, b) => a - b);
   const needsBypass = new Map(); // depth -> { x, y } position for bypass dot
 
   for (const depth of depthsSorted) {
     const colNodes = columns[depth] || [];
-    // find outputs in this column (exclude leftmost raw nodes)
-    const outputs = colNodes.filter(n => !(n.raw && n.depth === minDepth) && (n.hasOutputAnchor || (n.id === BBM_ID || n.label === BBM_ID)));
+    // find outputs in this column (exclude leftmost raw nodes and exclude final column nodes)
+    const outputs = colNodes.filter(n => !(n.raw && n.depth === minDepth) && (n.hasOutputAnchor || (n.id === BBM_ID || n.label === BBM_ID)) && n.depth !== maxDepth);
     if (outputs.length === 0) continue;
 
     // Check if any output node is consumed by a consumer more than one depth away
@@ -451,11 +444,12 @@ function renderGraph(nodes, links, rootItem) {
     if (anyFarConsumer) {
       // compute a single bypass dot position for this column:
       // place it horizontally at the column's output anchor x (use first output),
-      // vertically above the top-most output anchor by BYPASS_OFFSET
+      // vertically at the same offset above the node as the per-node top anchor:
+      // bypassY = topOutNode.y - nodeRadius - ANCHOR_OFFSET
       const outAnchors = outputs.map(n => anchorRightPos(n));
       const topOutY = Math.min(...outAnchors.map(p => p.y));
       const anchorX = outAnchors[0].x;
-      const bypassY = topOutY - BYPASS_OFFSET;
+      const bypassY = topOutY - nodeRadius - ANCHOR_OFFSET; // same spacing as top anchors
       needsBypass.set(depth, { x: anchorX, y: bypassY });
     }
   }
@@ -472,7 +466,8 @@ function renderGraph(nodes, links, rootItem) {
       for (const n of colNodes) {
         if (n.raw && n.depth === minDepth) continue;
         if (n.hasTopAnchor) anchors.push(anchorTopPos(n));
-        if (n.hasOutputAnchor || (n.id === BBM_ID || n.label === BBM_ID)) anchors.push(anchorRightPos(n));
+        // exclude final column nodes from anchor list for right anchors
+        if ((n.hasOutputAnchor || (n.id === BBM_ID || n.label === BBM_ID)) && n.depth !== maxDepth) anchors.push(anchorRightPos(n));
       }
 
       if (anchors.length === 0) continue;
@@ -542,8 +537,11 @@ function renderGraph(nodes, links, rootItem) {
     const isSmelter = (node.building === 'Smelter');
     const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
 
+    // Left anchor: show if allowed and not smelter/BBM and not leftmost raw
     const showLeftAnchor = !hideAllAnchors && node.hasInputAnchor && !isSmelter && !isBBM;
+    // Right anchor: show if allowed and not final output (maxDepth)
     const showRightAnchor = !hideAllAnchors && (node.hasOutputAnchor || isBBM) && (node.depth !== maxDepth);
+    // Top anchor: show if flagged (non-adjacent consumer)
     const showTopAnchor = !hideAllAnchors && node.hasTopAnchor;
 
     // Connectors from node edge to anchor dot (visual only)
@@ -596,7 +594,7 @@ function renderGraph(nodes, links, rootItem) {
         </text>
     `;
 
-    // Anchor dots (these are the regular helper dots)
+    // Anchor dots (these are the helper dots)
     if (showLeftAnchor) {
       const a = anchorLeftPos(node);
       inner += `
@@ -630,10 +628,12 @@ function renderGraph(nodes, links, rootItem) {
 
   // --- Render bypass dots (ONLY the single helper dot per depth) ---
   // Draw these after nodes so they sit on top and are clearly visible.
+  // Use the same color as anchor dots.
+  const bypassFill = isDark ? '#ffffff' : '#2c3e50';
   for (const [depth, pos] of needsBypass.entries()) {
     inner += `
       <g class="bypass-dot" data-depth="${depth}" transform="translate(${pos.x},${pos.y})" aria-hidden="false">
-        <circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="${isDark ? '#ffd27a' : '#ffcc66'}" stroke="${isDark ? '#000' : '#fff'}" stroke-width="1.2" />
+        <circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="${bypassFill}" stroke="${isDark ? '#000' : '#fff'}" stroke-width="1.2" />
       </g>
     `;
   }
