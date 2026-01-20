@@ -227,37 +227,305 @@ function buildGraphData(chain, rootItem) {
 // ===============================
 // Render graph (numbers centered)
 // ===============================
-function renderGraph(nodes, links, rootItem) {
-  const nodeRadius = 22;
-  const isDark = document.body.classList.contains("dark");
+/* ============================
+   Graph rendering: try Ports, Offsets, Bus (no curves)
+   Replace your previous renderGraph and small helpers with this block
+   ============================ */
 
-  // Group nodes by depth
+// Tunable parameters
+const GRAPH_COL_WIDTH = 220;
+const GRAPH_ROW_HEIGHT = 120;
+const GRAPH_LABEL_OFFSET = 40;
+const GRAPH_CONTENT_PAD = 64;
+
+// Strategy parameters
+const PORT_COUNT = 4;        // number of fixed ports on target left side
+const OFFSET_SPACING = 10;   // px between parallel offset lines
+const BUS_THRESHOLD = 4;     // create bus when incoming >= threshold
+const BUS_GAP = 36;          // px between target and bus
+const BUS_PORT_SPACING = 18; // spacing between ports on bus
+
+// Helper: escape HTML for labels
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// Build initial layered layout (keeps your existing depth logic)
+function buildInitialLayout(nodes, links) {
   const columns = {};
   for (const node of nodes) {
     if (!columns[node.depth]) columns[node.depth] = [];
     columns[node.depth].push(node);
   }
 
-  // Spacing parameters (tweak if needed)
-  const colWidth = 220;
-  const rowHeight = 120;
-  const labelOffset = 40;
-  const contentPad = 64;
-
-  // Layout nodes
   for (const [depth, colNodes] of Object.entries(columns)) {
     colNodes.sort((a, b) => {
       const aOut = links.filter(l => l.to === a.id).length;
       const bOut = links.filter(l => l.to === b.id).length;
       return bOut - aOut;
     });
-
     colNodes.forEach((node, i) => {
-      node.x = depth * colWidth + 100;
-      node.y = i * rowHeight + 100;
+      node.x = depth * GRAPH_COL_WIDTH + 100;
+      node.y = i * GRAPH_ROW_HEIGHT + 100;
     });
   }
+}
 
+// Detect endpoint collisions: returns true if any target has two or more edges with identical endpoint coords
+function detectEndpointCollisions(edgeEndpoints) {
+  // edgeEndpoints: array of { toId, x, y }
+  const map = {};
+  for (const e of edgeEndpoints) {
+    const key = `${e.toId}::${Math.round(e.x)}::${Math.round(e.y)}`;
+    map[key] = (map[key] || 0) + 1;
+    if (map[key] > 1) return true;
+  }
+  return false;
+}
+
+// Strategy A: Ports
+// Returns { inner: string, endpoints: [{toId,x,y}, ...] }
+function renderWithPorts(nodes, links) {
+  // Build incoming map
+  const incoming = {};
+  for (const l of links) {
+    incoming[l.to] = incoming[l.to] || [];
+    incoming[l.to].push(l.from);
+  }
+
+  // Precompute ports for each target
+  const portMap = {}; // targetId -> array of {x,y}
+  for (const node of nodes) {
+    const ins = incoming[node.id] || [];
+    const count = Math.max(PORT_COUNT, ins.length);
+    const startY = node.y - ((count - 1) * OFFSET_SPACING) / 2;
+    const px = node.x - 22 - 6; // left of circle (circle radius ~22)
+    const ports = [];
+    for (let i = 0; i < count; i++) {
+      ports.push({ x: px, y: startY + i * OFFSET_SPACING });
+    }
+    portMap[node.id] = ports;
+  }
+
+  // Build inner SVG: edges to assigned ports, nodes
+  let inner = '';
+  const endpoints = [];
+
+  // Draw edges: assign ports deterministically by source x then y
+  for (const node of nodes) {
+    const ins = incoming[node.id] || [];
+    if (ins.length === 0) continue;
+    const sortedIns = ins.slice().map(id => nodes.find(n => n.id === id))
+                          .sort((a, b) => (a.x - b.x) || (a.y - b.y));
+    for (let i = 0; i < sortedIns.length; i++) {
+      const s = sortedIns[i];
+      const p = portMap[node.id][i]; // deterministic mapping
+      inner += `<line class="edge" x1="${s.x + 22}" y1="${s.y}" x2="${p.x}" y2="${p.y}" stroke="#666" stroke-width="2" stroke-linecap="round"/>`;
+      endpoints.push({ toId: node.id, x: p.x, y: p.y });
+    }
+  }
+
+  // Draw nodes (labels, circles, numbers)
+  for (const node of nodes) {
+    const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
+    const strokeColor = "#2c3e50";
+    const textColor = getTextColor(fillColor);
+    const labelY = node.y - GRAPH_LABEL_OFFSET;
+
+    inner += `
+      <g>
+        <text class="nodeLabel" x="${node.x}" y="${labelY}"
+              text-anchor="middle" font-size="13" font-weight="700"
+              fill="${textColor}" stroke="${isDarkMode() ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke">
+          ${escapeHtml(node.label)}
+        </text>
+        <circle cx="${node.x}" cy="${node.y}" r="22" fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" />
+        ${node.raw ? "" : `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20" fill="${fillColor}" rx="4" ry="4" />`}
+        <text class="nodeNumber" x="${node.x}" y="${node.y}" text-anchor="middle" font-size="13" font-weight="700"
+              fill="${textColor}" stroke="${isDarkMode() ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke">
+          ${node.raw ? "" : Math.ceil(node.machines)}
+        </text>
+      </g>
+    `;
+  }
+
+  return { inner, endpoints };
+}
+
+// Strategy B: Parallel Offsets
+function renderWithOffsets(nodes, links) {
+  // Build incoming map
+  const incoming = {};
+  for (const l of links) {
+    incoming[l.to] = incoming[l.to] || [];
+    incoming[l.to].push(l.from);
+  }
+
+  let inner = '';
+  const endpoints = [];
+
+  // For each target, compute offsets centered around target.y
+  for (const node of nodes) {
+    const ins = incoming[node.id] || [];
+    if (ins.length === 0) continue;
+    const sortedIns = ins.slice().map(id => nodes.find(n => n.id === id))
+                          .sort((a, b) => (a.x - b.x) || (a.y - b.y));
+    const k = sortedIns.length;
+    const mid = (k - 1) / 2;
+    for (let i = 0; i < sortedIns.length; i++) {
+      const s = sortedIns[i];
+      const offset = (i - mid) * OFFSET_SPACING;
+      const tx = node.x - 22 - 6;
+      const ty = node.y + offset;
+      inner += `<line class="edge" x1="${s.x + 22}" y1="${s.y}" x2="${tx}" y2="${ty}" stroke="#666" stroke-width="2" stroke-linecap="round"/>`;
+      endpoints.push({ toId: node.id, x: tx, y: ty });
+    }
+  }
+
+  // Draw nodes
+  for (const node of nodes) {
+    const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
+    const strokeColor = "#2c3e50";
+    const textColor = getTextColor(fillColor);
+    const labelY = node.y - GRAPH_LABEL_OFFSET;
+
+    inner += `
+      <g>
+        <text class="nodeLabel" x="${node.x}" y="${labelY}"
+              text-anchor="middle" font-size="13" font-weight="700"
+              fill="${textColor}" stroke="${isDarkMode() ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke">
+          ${escapeHtml(node.label)}
+        </text>
+        <circle cx="${node.x}" cy="${node.y}" r="22" fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" />
+        ${node.raw ? "" : `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20" fill="${fillColor}" rx="4" ry="4" />`}
+        <text class="nodeNumber" x="${node.x}" y="${node.y}" text-anchor="middle" font-size="13" font-weight="700"
+              fill="${textColor}" stroke="${isDarkMode() ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke">
+          ${node.raw ? "" : Math.ceil(node.machines)}
+        </text>
+      </g>
+    `;
+  }
+
+  return { inner, endpoints };
+}
+
+// Strategy C: Bus
+function renderWithBus(nodes, links) {
+  // Build incoming map
+  const incoming = {};
+  for (const l of links) {
+    incoming[l.to] = incoming[l.to] || [];
+    incoming[l.to].push(l.from);
+  }
+
+  let inner = '';
+  const endpoints = [];
+
+  for (const node of nodes) {
+    const ins = incoming[node.id] || [];
+    if (ins.length === 0) continue;
+
+    if (ins.length >= BUS_THRESHOLD) {
+      // create bus above target
+      const busY = node.y - BUS_GAP;
+      const k = ins.length;
+      const busLength = Math.max(80, (k - 1) * BUS_PORT_SPACING + 20);
+      const busX1 = node.x - busLength / 2;
+      const busX2 = node.x + busLength / 2;
+      inner += `<line class="bus" x1="${busX1}" y1="${busY}" x2="${busX2}" y2="${busY}" stroke="#444" stroke-width="3" stroke-linecap="round"/>`;
+
+      // ports along bus
+      const startX = busX1 + 10;
+      const sortedIns = ins.slice().map(id => nodes.find(n => n.id === id))
+                            .sort((a, b) => (a.x - b.x) || (a.y - b.y));
+      for (let i = 0; i < sortedIns.length; i++) {
+        const s = sortedIns[i];
+        const px = startX + i * BUS_PORT_SPACING;
+        const py = busY;
+        inner += `<rect x="${px - 4}" y="${py - 4}" width="8" height="8" rx="2" ry="2" fill="#fff" stroke="#333"/>`;
+        inner += `<line class="edge" x1="${s.x + 22}" y1="${s.y}" x2="${px}" y2="${py}" stroke="#666" stroke-width="2" stroke-linecap="round"/>`;
+        endpoints.push({ toId: node.id, x: px, y: py });
+      }
+
+      // connect bus center to target with single straight line
+      inner += `<line class="edge" x1="${node.x}" y1="${busY}" x2="${node.x}" y2="${node.y - 22}" stroke="#666" stroke-width="2.5" stroke-linecap="round"/>`;
+      endpoints.push({ toId: node.id, x: node.x, y: node.y - 22 });
+    } else {
+      // fallback: direct lines to left side center
+      const tx = node.x - 22 - 6;
+      const sortedIns = ins.slice().map(id => nodes.find(n => n.id === id))
+                            .sort((a, b) => (a.x - b.x) || (a.y - b.y));
+      for (const s of sortedIns) {
+        inner += `<line class="edge" x1="${s.x + 22}" y1="${s.y}" x2="${tx}" y2="${node.y}" stroke="#666" stroke-width="2" stroke-linecap="round"/>`;
+        endpoints.push({ toId: node.id, x: tx, y: node.y });
+      }
+    }
+  }
+
+  // Draw nodes
+  for (const node of nodes) {
+    const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
+    const strokeColor = "#2c3e50";
+    const textColor = getTextColor(fillColor);
+    const labelY = node.y - GRAPH_LABEL_OFFSET;
+
+    inner += `
+      <g>
+        <text class="nodeLabel" x="${node.x}" y="${labelY}"
+              text-anchor="middle" font-size="13" font-weight="700"
+              fill="${textColor}" stroke="${isDarkMode() ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke">
+          ${escapeHtml(node.label)}
+        </text>
+        <circle cx="${node.x}" cy="${node.y}" r="22" fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" />
+        ${node.raw ? "" : `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20" fill="${fillColor}" rx="4" ry="4" />`}
+        <text class="nodeNumber" x="${node.x}" y="${node.y}" text-anchor="middle" font-size="13" font-weight="700"
+              fill="${textColor}" stroke="${isDarkMode() ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke">
+          ${node.raw ? "" : Math.ceil(node.machines)}
+        </text>
+      </g>
+    `;
+  }
+
+  return { inner, endpoints };
+}
+
+// Utility: detect dark mode (your app uses body.dark earlier)
+function isDarkMode() {
+  return document.body.classList.contains('dark') || document.body.classList.contains('dark-mode');
+}
+
+// Try strategies in order and pick the first that removes endpoint collisions
+function tryStrategiesAndRender(nodes, links, rootItem) {
+  // initial layout
+  buildInitialLayout(nodes, links);
+
+  // Strategy A: Ports
+  const portsResult = renderWithPorts(nodes, links);
+  if (!detectEndpointCollisions(portsResult.endpoints)) {
+    return portsResult.inner;
+  }
+
+  // Strategy B: Parallel Offsets
+  const offsetsResult = renderWithOffsets(nodes, links);
+  if (!detectEndpointCollisions(offsetsResult.endpoints)) {
+    return offsetsResult.inner;
+  }
+
+  // Strategy C: Bus (fallback)
+  const busResult = renderWithBus(nodes, links);
+  // bus should eliminate collisions by design; still check
+  return busResult.inner;
+}
+
+// Final renderGraph function (keeps viewBox padding)
+function renderGraph(nodes, links, rootItem) {
+  // nodes and links are expected to already be built by buildGraphData
+  const inner = tryStrategiesAndRender(nodes, links, rootItem);
+
+  // compute content bbox from node positions (they were set by buildInitialLayout)
   const xs = nodes.map(n => n.x);
   const ys = nodes.map(n => n.y);
   const minX = nodes.length ? Math.min(...xs) : 0;
@@ -265,61 +533,10 @@ function renderGraph(nodes, links, rootItem) {
   const minY = nodes.length ? Math.min(...ys) : 0;
   const maxY = nodes.length ? Math.max(...ys) : 0;
 
-  // Content bbox with padding so panning doesn't clip nodes
-  const contentX = minX - nodeRadius - contentPad;
-  const contentY = minY - nodeRadius - contentPad;
-  const contentW = (maxX - minX) + (nodeRadius * 2) + contentPad * 2;
-  const contentH = (maxY - minY) + (nodeRadius * 2) + contentPad * 2;
-
-  // Build inner SVG
-  let inner = '';
-
-  for (const link of links) {
-    const from = nodes.find(n => n.id === link.from);
-    const to = nodes.find(n => n.id === link.to);
-    if (!from || !to) continue;
-
-    inner += `
-      <line x1="${from.x}" y1="${from.y}"
-            x2="${to.x}" y2="${to.y}"
-            stroke="#999" stroke-width="2" />
-    `;
-  }
-
-  for (const node of nodes) {
-    const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
-    const strokeColor = "#2c3e50";
-    const textColor = getTextColor(fillColor);
-
-    const labelY = node.y - labelOffset;
-
-    // IMPORTANT: number text is placed exactly at node.y and uses baseline CSS to center.
-    inner += `
-      <g>
-        <text class="nodeLabel" x="${node.x}" y="${labelY}"
-              text-anchor="middle" font-size="13" font-weight="700"
-              fill="${textColor}"
-              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke">
-          ${escapeHtml(node.label)}
-        </text>
-
-        <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
-                fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" />
-
-        ${node.raw ? "" : (
-          `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20"
-                 fill="${fillColor}" rx="4" ry="4" />`
-        )}
-
-        <text class="nodeNumber" x="${node.x}" y="${node.y}"
-              text-anchor="middle" font-size="13" font-weight="700"
-              fill="${textColor}"
-              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke">
-          ${node.raw ? "" : Math.ceil(node.machines)}
-        </text>
-      </g>
-    `;
-  }
+  const contentX = minX - 22 - GRAPH_CONTENT_PAD;
+  const contentY = minY - 22 - GRAPH_CONTENT_PAD;
+  const contentW = (maxX - minX) + (22 * 2) + GRAPH_CONTENT_PAD * 2;
+  const contentH = (maxY - minY) + (22 * 2) + GRAPH_CONTENT_PAD * 2;
 
   const viewBoxX = Math.floor(contentX);
   const viewBoxY = Math.floor(contentY);
@@ -343,6 +560,10 @@ function renderGraph(nodes, links, rootItem) {
 
   return svg;
 }
+
+/* ============================
+   End of graph rendering block
+   ============================ */
 
 // small helper to avoid injecting raw HTML from labels
 function escapeHtml(str) {
