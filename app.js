@@ -447,9 +447,9 @@ function renderGraph(nodes, links, rootItem) {
       // vertically at the same offset above the node as the per-node top anchor:
       // bypassY = topOutNode.y - nodeRadius - ANCHOR_OFFSET
       const outAnchors = outputs.map(n => anchorRightPos(n));
-      const topOutY = Math.min(...outAnchors.map(p => p.y));
-      const anchorX = outAnchors[0].x;
-      const bypassY = topOutY - nodeRadius - ANCHOR_OFFSET; // same spacing as top anchors
+      const topOutputNode = outputs.reduce((a, b) => (a.y < b.y ? a : b)); 
+      const anchorX = anchorRightPos(topOutputNode).x; 
+      const bypassY = anchorTopPos(topOutputNode).y;
       needsBypass.set(depth, { x: anchorX, y: bypassY });
     }
   }
