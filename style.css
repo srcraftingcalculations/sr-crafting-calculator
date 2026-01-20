@@ -124,6 +124,20 @@ button:hover {
   background: #ccc;
 }
 
+#searchWrapper {
+  display: flex;
+  justify-content: center;
+  margin: 20px 0;
+}
+
+#searchInput {
+  width: 280px;
+  padding: 8px 12px;
+  font-size: 16px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+}
+
 /* ============================
    Table Styling
 ============================ */
