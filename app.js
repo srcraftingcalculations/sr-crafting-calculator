@@ -1,6 +1,8 @@
 // ===============================
-// app.js - Full updated script (JS-only fixes)
-// - Click anywhere in node triggers highlight of immediate inputs only
+// app.js - Full updated script (final fixes)
+// - Clicking anywhere in a node highlights only its immediate inputs
+// - Clicking the same node again clears pulses (toggle off)
+// - Prevents the black focus box by inline styles and pointer-events on children
 // - Drag threshold prevents accidental activation while panning
 // - Left->right layout retained
 // ===============================
@@ -33,7 +35,7 @@ const GRAPH_CONTENT_PAD = 64;
 const DRAG_THRESHOLD_PX = 8;      // desktop threshold
 const TOUCH_THRESHOLD_PX = 12;    // touch threshold
 const PULSE_PROPAGATION_DEPTH = 1; // immediate inputs only
-const PULSE_STAGGER_MS = 90;      // not used for propagation but kept
+const PULSE_STAGGER_MS = 90;      // kept for timing if needed
 
 /* ===============================
    Utilities
@@ -241,9 +243,8 @@ function buildGraphData(chain, rootItem) {
 }
 
 /* ===============================
-   Inject minimal pulse CSS via JS (keeps animations available)
-   - This is optional; you said no CSS edits, but animations need styles.
-   - If you truly want zero CSS changes, remove this block; pulses will still be applied as classes but won't animate.
+   Inject minimal pulse CSS via JS (optional)
+   - keeps animations available; you can remove if you prefer no CSS
    =============================== */
 (function injectPulseStylesIfMissing() {
   if (document.getElementById('graphPulseStyles')) return;
@@ -273,7 +274,8 @@ function buildGraphData(chain, rootItem) {
 
 /* ===============================
    Render graph (left->right layout)
-   - group (<g class="graph-node">) contains children; we will attach pointer logic separately
+   - group (<g class="graph-node">) includes inline style to suppress focus box
+   - child label/rect/number set pointer-events="none" so group receives pointer events
    =============================== */
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
@@ -336,24 +338,28 @@ function renderGraph(nodes, links, rootItem) {
     const textColor = getTextColor(fillColor);
     const labelY = node.y - GRAPH_LABEL_OFFSET;
 
+    // NOTE: inline style "outline:none" prevents the browser focus box around the group.
+    // Child elements have pointer-events="none" so the group receives pointer events reliably.
     inner += `
-      <g class="graph-node" data-id="${escapeHtml(node.id)}" tabindex="0" role="button" aria-label="${escapeHtml(node.label)}">
+      <g class="graph-node" data-id="${escapeHtml(node.id)}" tabindex="0" role="button" aria-label="${escapeHtml(node.label)}" style="outline:none;">
         <text class="nodeLabel" x="${node.x}" y="${labelY}"
               text-anchor="middle" font-size="13" font-weight="700"
               fill="${textColor}"
-              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke">
+              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke"
+              pointer-events="none">
           ${escapeHtml(node.label)}
         </text>
 
         <circle class="graph-node-circle" data-id="${escapeHtml(node.id)}" cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
                 fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" />
 
-        ${node.raw ? "" : `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20" fill="${fillColor}" rx="4" ry="4" />`}
+        ${node.raw ? "" : `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20" fill="${fillColor}" rx="4" ry="4" pointer-events="none" />`}
 
         <text class="nodeNumber" x="${node.x}" y="${node.y}"
               text-anchor="middle" font-size="13" font-weight="700"
               fill="${textColor}"
-              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke">
+              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke"
+              pointer-events="none">
           ${node.raw ? "" : Math.ceil(node.machines)}
         </text>
       </g>
@@ -383,9 +389,9 @@ function renderGraph(nodes, links, rootItem) {
 }
 
 /* ===============================
-   Highlighting (strict immediate-only)
+   Highlighting (strict immediate-only, toggle)
    - Only circle and line elements receive pulse classes
-   - No propagation beyond immediate inputs
+   - Clicking the same node toggles pulses off
    =============================== */
 function clearPulses(svg) {
   if (!svg) return;
@@ -397,11 +403,17 @@ function clearPulses(svg) {
 function highlightOutgoing(nodeId, svg) {
   if (!svg || !nodeId) return;
 
+  // If origin circle already has pulse-origin, toggle off
+  const originCircle = svg.querySelector(`circle.graph-node-circle[data-id="${CSS.escape(nodeId)}"]`);
+  if (originCircle && originCircle.classList.contains('pulse-origin')) {
+    clearPulses(svg);
+    return;
+  }
+
   // Clear previous pulses (only circles/lines)
   clearPulses(svg);
 
   // Mark origin circle only
-  const originCircle = svg.querySelector(`circle.graph-node-circle[data-id="${CSS.escape(nodeId)}"]`);
   if (originCircle) originCircle.classList.add('pulse-origin');
 
   // Find outgoing edges (consumer -> its inputs)
@@ -433,7 +445,7 @@ function attachNodePointerHandlers(wrapper) {
     return (ev && ev.pointerType === 'touch') ? TOUCH_THRESHOLD_PX : DRAG_THRESHOLD_PX;
   }
 
-  // pointerdown on wrapper (capture phase ensures we get it early)
+  // pointerdown on wrapper (capture early)
   wrapper.addEventListener('pointerdown', (ev) => {
     // find nearest graph-node ancestor of the event target
     const nodeGroup = ev.target.closest && ev.target.closest('g.graph-node[data-id]');
@@ -445,11 +457,11 @@ function attachNodePointerHandlers(wrapper) {
     pointerMap.set(ev.pointerId, { nodeId, startX: ev.clientX, startY: ev.clientY, isDragging: false });
   }, { passive: false });
 
-  // pointermove on document to track dragging
+  // pointermove on window to track dragging
   window.addEventListener('pointermove', (ev) => {
     const entry = pointerMap.get(ev.pointerId);
     if (!entry) return;
-    if (entry.isDragging) return; // already dragging
+    if (entry.isDragging) return;
     const dx = ev.clientX - entry.startX;
     const dy = ev.clientY - entry.startY;
     if (Math.hypot(dx, dy) > getThreshold(ev)) {
@@ -458,7 +470,7 @@ function attachNodePointerHandlers(wrapper) {
     }
   }, { passive: true });
 
-  // pointerup on wrapper (or document) to finalize click vs drag
+  // pointerup on wrapper to finalize click vs drag
   wrapper.addEventListener('pointerup', (ev) => {
     const entry = pointerMap.get(ev.pointerId);
     if (!entry) return;
@@ -467,9 +479,8 @@ function attachNodePointerHandlers(wrapper) {
       nodeGroup && nodeGroup.releasePointerCapture?.(ev.pointerId);
     } catch (e) {}
     if (!entry.isDragging) {
-      // confirmed click — highlight immediate inputs
-      const nodeId = entry.nodeId;
-      highlightOutgoing(nodeId, svg);
+      // confirmed click — highlight immediate inputs (toggle behavior inside)
+      highlightOutgoing(entry.nodeId, svg);
     }
     pointerMap.delete(ev.pointerId);
     ev.stopPropagation();
