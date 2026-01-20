@@ -1,31 +1,13 @@
 // ===============================
 // app.js - Full application script
-// Includes a clearly marked test graph-render block you can edit/toggle
+// Includes three straight-line graph strategies (Ports, Offsets, Bus)
+// and a small test UI to switch strategies and enable debug markers.
+// Paste this file as your app.js (no HTML/CSS changes required).
 // ===============================
 
-// ===============================
-// Load Recipes
-// ===============================
-async function loadRecipes() {
-  const url = "https://srcraftingcalculations.github.io/sr-crafting-calculator/data/recipes.json";
-  try {
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) throw new Error("Failed to fetch recipes.json");
-    return await response.json();
-  } catch (err) {
-    console.error("Error loading recipes:", err);
-    const out = document.getElementById("outputArea");
-    if (out) out.innerHTML = `<p style="color:red;">Error loading recipe data. Please try again later.</p>`;
-    return {};
-  }
-}
-
-let RECIPES = {};
-let TIERS = {};
-
-// ===============================
-// Visual constants & helpers
-// ===============================
+/* ===============================
+   Configuration & Constants
+   =============================== */
 const MACHINE_COLORS = {
   "Smelter":      "#e67e22",
   "Furnace":      "#d63031",
@@ -43,6 +25,29 @@ const SPECIAL_EXTRACTORS = {
   "Sulphur Ore": 240
 };
 
+/* Graph tunables (easy to tweak) */
+const GRAPH_COL_WIDTH = 220;
+const GRAPH_ROW_HEIGHT = 120;
+const GRAPH_LABEL_OFFSET = 40;
+const GRAPH_CONTENT_PAD = 64;
+
+/* Strategy params */
+const PORT_COUNT = 4;
+const OFFSET_SPACING = 10;
+const BUS_THRESHOLD = 4;
+const BUS_GAP = 36;
+const BUS_PORT_SPACING = 18;
+
+/* Runtime toggles (controlled by UI) */
+let GRAPH_DEBUG = false;           // draw debug markers when true
+let GRAPH_FORCE_STRATEGY = null;   // 'ports' | 'offsets' | 'bus' or null for auto
+
+/* ===============================
+   Utility helpers
+   =============================== */
+function escapeHtml(str) {
+  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 function getTextColor(bg) {
   if (!bg || bg[0] !== "#") return "#000000";
   const r = parseInt(bg.substr(1, 2), 16);
@@ -51,11 +56,9 @@ function getTextColor(bg) {
   const luminance = (0.299 * r + 0.587 * g + 0.114 * b);
   return luminance > 150 ? "#000000" : "#ffffff";
 }
-
-function escapeHtml(str) {
-  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function isDarkMode() {
+  return document.body.classList.contains('dark') || document.body.classList.contains('dark-mode');
 }
-
 function showToast(message) {
   const container = document.getElementById("toastContainer");
   if (!container) return;
@@ -70,13 +73,31 @@ function showToast(message) {
   }, 3000);
 }
 
-// ===============================
-// Chain expansion logic
-// ===============================
+/* ===============================
+   Data loading & recipe helpers
+   =============================== */
+let RECIPES = {};
+let TIERS = {};
+
+async function loadRecipes() {
+  const url = "https://srcraftingcalculations.github.io/sr-crafting-calculator/data/recipes.json";
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) throw new Error("Failed to fetch recipes.json");
+    return await response.json();
+  } catch (err) {
+    console.error("Error loading recipes:", err);
+    const out = document.getElementById("outputArea");
+    if (out) out.innerHTML = `<p style="color:red;">Error loading recipe data. Please try again later.</p>`;
+    return {};
+  }
+}
+
 function getRecipe(name) {
   return RECIPES[name] || null;
 }
 
+/* Expand production chain (breadth-first accumulation) */
 function expandChain(item, targetRate) {
   const chain = {};
   const machineTotals = {};
@@ -143,9 +164,9 @@ function expandChain(item, targetRate) {
   return { chain, machineTotals, extractorTotals };
 }
 
-// ===============================
-// Depths & graph data
-// ===============================
+/* ===============================
+   Depth computation & graph data
+   =============================== */
 function computeDepths(chain, rootItem) {
   const consumers = {};
   const depths = {};
@@ -224,42 +245,12 @@ function buildGraphData(chain, rootItem) {
   return { nodes, links };
 }
 
-// ===============================
-// Graph rendering block (TESTABLE)
-// ===============================
-/*
-  /* ============================
-  REPLACE-ONLY: Graph render + test UI block
-  Drop this into app.js in place of the previous graph rendering code.
-  It exposes a small UI to force strategy and enable debug markers.
-  ============================ */
+/* ===============================
+   Graph rendering: three strategies
+   (Ports, Offsets, Bus) + test UI
+   =============================== */
 
-/* Tunables */
-const GRAPH_COL_WIDTH = 220;
-const GRAPH_ROW_HEIGHT = 120;
-const GRAPH_LABEL_OFFSET = 40;
-const GRAPH_CONTENT_PAD = 64;
-
-/* Strategy params */
-const PORT_COUNT = 4;
-const OFFSET_SPACING = 10;
-const BUS_THRESHOLD = 4;
-const BUS_GAP = 36;
-const BUS_PORT_SPACING = 18;
-
-/* Runtime toggles (UI will control these) */
-let GRAPH_DEBUG = false;           // draw debug markers when true
-let GRAPH_FORCE_STRATEGY = null;   // 'ports'|'offsets'|'bus' or null for auto
-
-/* Helpers */
-function escapeHtml(str) {
-  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-function isDarkMode() {
-  return document.body.classList.contains('dark') || document.body.classList.contains('dark-mode');
-}
-
-/* 1) Layout: assign x,y by depth and stable ordering */
+/* Layout: assign x,y by depth and stable ordering */
 function buildInitialLayout(nodes, links) {
   const columns = {};
   for (const node of nodes) {
@@ -280,7 +271,7 @@ function buildInitialLayout(nodes, links) {
   }
 }
 
-/* 2) Incoming map */
+/* Build incoming map */
 function buildIncomingMap(links) {
   const incoming = {};
   for (const l of links) {
@@ -290,7 +281,7 @@ function buildIncomingMap(links) {
   return incoming;
 }
 
-/* 3) Collision detection (proximity) */
+/* Proximity collision detection */
 function detectEndpointCollisions(endpoints, eps = 6) {
   const byTarget = {};
   for (const e of endpoints) {
@@ -309,7 +300,7 @@ function detectEndpointCollisions(endpoints, eps = 6) {
   return false;
 }
 
-/* 4) Node drawing helper (keeps visuals consistent) */
+/* Node drawing helper */
 function drawNodesSVG(nodes) {
   let inner = '';
   for (const node of nodes) {
@@ -336,7 +327,7 @@ function drawNodesSVG(nodes) {
   return inner;
 }
 
-/* 5A) Strategy: Ports */
+/* Strategy A: Ports */
 function renderWithPorts(nodes, links) {
   const incoming = buildIncomingMap(links);
   const portMap = {};
@@ -364,7 +355,7 @@ function renderWithPorts(nodes, links) {
       const p = portMap[node.id][i];
       inner += `<line class="edge" x1="${s.x + 22}" y1="${s.y}" x2="${p.x}" y2="${p.y}" stroke="#666" stroke-width="2" stroke-linecap="round"/>`;
       endpoints.push({ toId: node.id, x: p.x, y: p.y });
-      if (GRAPH_DEBUG) inner += `<circle cx="${p.x}" cy="${p.y}" r="3" fill="#ff0000" />`;
+      if (GRAPH_DEBUG) inner += `<rect class="port-marker" x="${p.x-6}" y="${p.y-6}" width="12" height="12" rx="2" ry="2"></rect>`;
     }
   }
 
@@ -372,7 +363,7 @@ function renderWithPorts(nodes, links) {
   return { inner, endpoints };
 }
 
-/* 5B) Strategy: Parallel Offsets */
+/* Strategy B: Parallel Offsets */
 function renderWithOffsets(nodes, links) {
   const incoming = buildIncomingMap(links);
   let inner = '';
@@ -392,7 +383,7 @@ function renderWithOffsets(nodes, links) {
       const ty = node.y + offset;
       inner += `<line class="edge" x1="${s.x + 22}" y1="${s.y}" x2="${tx}" y2="${ty}" stroke="#666" stroke-width="2" stroke-linecap="round"/>`;
       endpoints.push({ toId: node.id, x: tx, y: ty });
-      if (GRAPH_DEBUG) inner += `<circle cx="${tx}" cy="${ty}" r="3" fill="#00aaff" />`;
+      if (GRAPH_DEBUG) inner += `<circle class="debug-dot" cx="${tx}" cy="${ty}" r="3"></circle>`;
     }
   }
 
@@ -400,7 +391,7 @@ function renderWithOffsets(nodes, links) {
   return { inner, endpoints };
 }
 
-/* 5C) Strategy: Bus */
+/* Strategy C: Bus */
 function renderWithBus(nodes, links) {
   const incoming = buildIncomingMap(links);
   let inner = '';
@@ -425,14 +416,14 @@ function renderWithBus(nodes, links) {
         const s = sortedIns[i];
         const px = startX + i * BUS_PORT_SPACING;
         const py = busY;
-        inner += `<rect x="${px - 4}" y="${py - 4}" width="8" height="8" rx="2" ry="2" fill="#fff" stroke="#333"/>`;
+        inner += `<rect class="port-marker" x="${px - 4}" y="${py - 4}" width="8" height="8" rx="2" ry="2" fill="#fff" stroke="#333"/>`;
         inner += `<line class="edge" x1="${s.x + 22}" y1="${s.y}" x2="${px}" y2="${py}" stroke="#666" stroke-width="2" stroke-linecap="round"/>`;
         endpoints.push({ toId: node.id, x: px, y: py });
-        if (GRAPH_DEBUG) inner += `<circle cx="${px}" cy="${py}" r="2" fill="#22aa22" />`;
+        if (GRAPH_DEBUG) inner += `<circle class="debug-dot-small" cx="${px}" cy="${py}" r="2"></circle>`;
       }
       inner += `<line class="edge" x1="${node.x}" y1="${busY}" x2="${node.x}" y2="${node.y - 22}" stroke="#666" stroke-width="2.5" stroke-linecap="round"/>`;
       endpoints.push({ toId: node.id, x: node.x, y: node.y - 22 });
-      if (GRAPH_DEBUG) inner += `<circle cx="${node.x}" cy="${busY}" r="3" fill="#aa22aa" />`;
+      if (GRAPH_DEBUG) inner += `<circle class="debug-dot" cx="${node.x}" cy="${busY}" r="3"></circle>`;
     } else {
       const tx = node.x - 22 - 6;
       const sortedIns = ins.map(id => nodes.find(n => n.id === id))
@@ -440,7 +431,7 @@ function renderWithBus(nodes, links) {
       for (const s of sortedIns) {
         inner += `<line class="edge" x1="${s.x + 22}" y1="${s.y}" x2="${tx}" y2="${node.y}" stroke="#666" stroke-width="2" stroke-linecap="round"/>`;
         endpoints.push({ toId: node.id, x: tx, y: node.y });
-        if (GRAPH_DEBUG) inner += `<circle cx="${tx}" cy="${node.y}" r="3" fill="#999999" />`;
+        if (GRAPH_DEBUG) inner += `<circle class="debug-dot" cx="${tx}" cy="${node.y}" r="3"></circle>`;
       }
     }
   }
@@ -449,7 +440,7 @@ function renderWithBus(nodes, links) {
   return { inner, endpoints };
 }
 
-/* 6) Try strategies in order (or forced) and return inner SVG */
+/* Try strategies in order (or forced) and return inner SVG content */
 function tryStrategiesAndRender(nodes, links) {
   buildInitialLayout(nodes, links);
 
@@ -470,7 +461,7 @@ function tryStrategiesAndRender(nodes, links) {
   return renderWithBus(nodes, links).inner;
 }
 
-/* 7) Final renderGraph (returns HTML string for graph area) */
+/* Final renderGraph (returns HTML string for graph area) */
 function renderGraph(nodes, links, rootItem) {
   const inner = tryStrategiesAndRender(nodes, links, rootItem);
 
@@ -508,51 +499,10 @@ function renderGraph(nodes, links, rootItem) {
   return svg;
 }
 
-/* 8) Small UI helpers so you can toggle strategy/debug while testing.
-   These add a tiny control bar above the graph area. */
-function ensureGraphTestControls() {
-  if (document.getElementById('graphTestControls')) return;
-  const container = document.getElementById('tableContainer') || document.body;
-  const div = document.createElement('div');
-  div.id = 'graphTestControls';
-  div.style.margin = '8px 0';
-  div.style.display = 'flex';
-  div.style.gap = '8px';
-  div.style.alignItems = 'center';
-
-  div.innerHTML = `
-    <label style="font-weight:600;">Graph strategy:</label>
-    <select id="graphStrategySelect">
-      <option value="">Auto</option>
-      <option value="ports">Ports</option>
-      <option value="offsets">Offsets</option>
-      <option value="bus">Bus</option>
-    </select>
-    <label style="margin-left:12px;"><input type="checkbox" id="graphDebugToggle"> Debug</label>
-    <button id="graphApplyBtn" style="margin-left:8px;padding:6px 10px;">Apply</button>
-  `;
-  container.insertBefore(div, container.firstChild);
-
-  document.getElementById('graphApplyBtn').addEventListener('click', () => {
-    const sel = document.getElementById('graphStrategySelect').value;
-    GRAPH_FORCE_STRATEGY = sel || null;
-    GRAPH_DEBUG = document.getElementById('graphDebugToggle').checked;
-    // re-run current calculation if present
-    const calcBtn = document.getElementById('calcButton');
-    if (calcBtn) calcBtn.click();
-  });
-}
-
-/* Ensure controls exist (safe to call repeatedly) */
-ensureGraphTestControls();
-
-/* ============================
-  End of replacement block
-  ============================ */
-
-// ===============================
-// Graph zoom/pan & reset (unchanged)
-// ===============================
+/* ===============================
+   Graph zoom/pan utilities
+   (keeps behavior from earlier app)
+   =============================== */
 function ensureResetButton() {
   let btn = document.querySelector('.graphResetButton');
   if (btn) return btn;
@@ -793,9 +743,49 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
   }
 }
 
-// ===============================
-// Table rendering (injects graph + table + reset button)
-// ===============================
+/* ===============================
+   Graph test controls (insert once)
+   =============================== */
+function ensureGraphTestControls() {
+  if (document.getElementById('graphTestControls')) return;
+  const container = document.getElementById('tableContainer') || document.body;
+  const div = document.createElement('div');
+  div.id = 'graphTestControls';
+  div.style.margin = '8px 0';
+  div.style.display = 'flex';
+  div.style.gap = '8px';
+  div.style.alignItems = 'center';
+
+  div.innerHTML = `
+    <label style="font-weight:600;">Graph strategy:</label>
+    <select id="graphStrategySelect">
+      <option value="">Auto</option>
+      <option value="ports">Ports</option>
+      <option value="offsets">Offsets</option>
+      <option value="bus">Bus</option>
+    </select>
+    <label style="margin-left:12px;"><input type="checkbox" id="graphDebugToggle"> Debug</label>
+    <button id="graphApplyBtn" style="margin-left:8px;padding:6px 10px;">Apply</button>
+  `;
+  container.insertBefore(div, container.firstChild);
+
+  document.getElementById('graphApplyBtn').addEventListener('click', () => {
+    const sel = document.getElementById('graphStrategySelect').value;
+    GRAPH_FORCE_STRATEGY = sel || null;
+    GRAPH_DEBUG = document.getElementById('graphDebugToggle').checked;
+    const btn = document.getElementById('calcButton');
+    if (btn) btn.click();
+  });
+}
+
+/* ===============================
+   Table rendering and integration
+   =============================== */
+function computeRailsNeeded(inputRates, railSpeed) {
+  const total = Object.values(inputRates).reduce((sum, val) => sum + val, 0);
+  return railSpeed && railSpeed > 0 ? Math.ceil(total / railSpeed) : "—";
+}
+
 function renderTable(chainObj, rootItem, rate) {
   const { chain, machineTotals, extractorTotals } = chainObj;
   const { nodes, links } = buildGraphData(chain, rootItem);
@@ -810,6 +800,7 @@ function renderTable(chainObj, rootItem, rate) {
   }
 
   ensureResetButton();
+  ensureGraphTestControls();
 
   graphArea.innerHTML = graphHTML;
   const wrapper = graphArea.querySelector(".graphWrapper");
@@ -919,17 +910,9 @@ function renderTable(chainObj, rootItem, rate) {
   if (out) out.innerHTML = html;
 }
 
-// ===============================
-// Rails helper
-// ===============================
-function computeRailsNeeded(inputRates, railSpeed) {
-  const total = Object.values(inputRates).reduce((sum, val) => sum + val, 0);
-  return railSpeed && railSpeed > 0 ? Math.ceil(total / railSpeed) : "—";
-}
-
-// ===============================
-// Calculator trigger & UI wiring
-// ===============================
+/* ===============================
+   UI wiring and initialization
+   =============================== */
 function runCalculator() {
   const item = document.getElementById('itemSelect').value;
   const rateRaw = document.getElementById('rateInput').value;
@@ -965,9 +948,9 @@ function setupDarkMode() {
   });
 }
 
-// ===============================
-// Initialization
-// ===============================
+/* ===============================
+   Initialization
+   =============================== */
 async function init() {
   setupDarkMode();
   const data = await loadRecipes();
@@ -981,7 +964,6 @@ async function init() {
 
   if (itemSelect) itemSelect.innerHTML = `<option value="" disabled selected>Select Item Here</option>`;
   if (railSelect) railSelect.innerHTML = `
-    <option value="" disabled selected>Select Rail</option>
     <option value="120">v1 (120/min)</option>
     <option value="240">v2 (240/min)</option>
     <option value="480">v3 (480/min)</option>
@@ -1069,6 +1051,9 @@ async function init() {
       });
     });
   }
+
+  // Ensure graph test controls exist (safe to call repeatedly)
+  ensureGraphTestControls();
 }
 
 init();
