@@ -47,41 +47,40 @@
 
 
   <!-- ============================
-       CONTROLS (updated)
+       TABLE + CONTROLS CONTAINER
+       (⭐ NEW WRAPPER FOR CENTERING)
   ============================= -->
-  <section id="controls">
-    <label for="itemSelect">Item:</label>
-    <select id="itemSelect"></select>
+  <div id="tableContainer">
 
-    <label for="rateInput">Rate (/min):</label>
-    <input type="number" id="rateInput" value="60" min="0" step="1" />
+    <!-- ============================
+         CONTROLS (centered to table)
+    ============================= -->
+    <section id="controls">
+      <label for="itemSelect">Item:</label>
+      <select id="itemSelect"></select>
 
-    <label for="railSelect">Rail Type:</label>
-    <select id="railSelect">
-      <option value="120">v1 (120/min)</option>
-      <option value="240" selected>v2 (240/min)</option>
-      <option value="480">v3 (480/min)</option>
-    </select>
+      <label for="rateInput">Rate (/min):</label>
+      <input type="number" id="rateInput" value="60" min="0" step="1" />
 
-    <button id="calcButton">Calculate</button>
+      <label for="railSelect">Rail Type:</label>
+      <select id="railSelect">
+        <option value="120">v1 (120/min)</option>
+        <option value="240" selected>v2 (240/min)</option>
+        <option value="480">v3 (480/min)</option>
+      </select>
 
-    <button id="clearStateBtn">Clear</button>
+      <button id="calcButton">Calculate</button>
+      <button id="clearStateBtn">Clear</button>
+      <button id="shareButton">Share</button>
+    </section>
 
-    <button id="shareButton">Share</button>
+    <!-- ============================
+         OUTPUT + GRAPH
+    ============================= -->
+    <section id="outputArea"></section>
+    <section id="graphArea"></section>
 
-    <!-- ⭐ Centered Search Bar Wrapper -->
-    <div id="searchWrapper">
-      <input id="searchInput" type="text" placeholder="Search…" />
-    </div>
-
-  </section>
-
-
-  <!-- ============================
-       OUTPUT + GRAPH (unchanged)
-  ============================= -->
-  <section id="outputArea"></section>
-  <section id="graphArea"></section>
+  </div> <!-- end #tableContainer -->
 
 
   <!-- ============================
