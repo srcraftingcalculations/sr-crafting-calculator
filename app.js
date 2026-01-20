@@ -1,9 +1,6 @@
 // ===============================
-// app.js - Full updated script
-// - Left->Right layout (depth -> x, index -> y)
-// - Click a node to highlight its inputs (upstream ripple)
-// - Pointer-based drag threshold prevents accidental activation while panning
-// - Pulsing animations injected via JS
+// app.js - Fixed: group-based click, outgoing-input highlighting,
+// pointer drag threshold, left->right layout retained
 // ===============================
 
 /* ===============================
@@ -26,21 +23,18 @@ const SPECIAL_EXTRACTORS = {
   "Sulphur Ore": 240
 };
 
-/* Graph tunables */
 const GRAPH_COL_WIDTH = 220;
 const GRAPH_ROW_HEIGHT = 120;
 const GRAPH_LABEL_OFFSET = 40;
 const GRAPH_CONTENT_PAD = 64;
 
-/* Interaction tuning */
-const DRAG_THRESHOLD_PX = 8;      // desktop threshold
-const TOUCH_THRESHOLD_PX = 12;    // touch threshold
-const PULSE_PROPAGATION_DEPTH = 1; // how many upstream levels to highlight
-const PULSE_STAGGER_MS = 90;      // stagger per edge for ripple effect
+const DRAG_THRESHOLD_PX = 8;
+const TOUCH_THRESHOLD_PX = 12;
+const PULSE_PROPAGATION_DEPTH = 1; // only immediate inputs by default
+const PULSE_STAGGER_MS = 90;
 
-/* Runtime toggles */
-let GRAPH_DEBUG = false;
-let GRAPH_FORCE_STRATEGY = null;
+let RECIPES = {};
+let TIERS = {};
 
 /* ===============================
    Utilities
@@ -74,11 +68,8 @@ function showToast(message) {
 }
 
 /* ===============================
-   Data loading & recipe helpers
+   Load recipes
    =============================== */
-let RECIPES = {};
-let TIERS = {};
-
 async function loadRecipes() {
   const url = "https://srcraftingcalculations.github.io/sr-crafting-calculator/data/recipes.json";
   try {
@@ -98,7 +89,7 @@ function getRecipe(name) {
 }
 
 /* ===============================
-   Expand production chain
+   Expand chain / graph data
    =============================== */
 function expandChain(item, targetRate) {
   const chain = {};
@@ -166,9 +157,6 @@ function expandChain(item, targetRate) {
   return { chain, machineTotals, extractorTotals };
 }
 
-/* ===============================
-   Depth computation & graph data
-   =============================== */
 function computeDepths(chain, rootItem) {
   const consumers = {};
   const depths = {};
@@ -272,6 +260,7 @@ function buildGraphData(chain, rootItem) {
       .pulse-origin, .pulse-node { animation: none !important; stroke-width: 4 !important; stroke: #ffd27a !important; }
       .pulse-edge { animation: none !important; stroke-width: 3 !important; stroke: #ffcc66 !important; stroke-opacity: 1 !important; }
     }
+    .graph-node[tabindex="0"]:focus { outline: none; }
     .graph-node-circle:focus { outline: none; stroke-width: 3; stroke: #88c0ff; }
     .graph-edge, .graph-node-circle { vector-effect: non-scaling-stroke; }
   `;
@@ -279,22 +268,19 @@ function buildGraphData(chain, rootItem) {
 })();
 
 /* ===============================
-   Render graph (left->right layout)
-   - nodes: circles with data-id
-   - edges: lines with data-from / data-to
+   Render graph (left->right)
+   - groups (<g class="graph-node">) are focusable and receive pointer events
    =============================== */
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
   const isDark = isDarkMode();
 
-  // Group nodes by depth
   const columns = {};
   for (const node of nodes) {
     if (!columns[node.depth]) columns[node.depth] = [];
     columns[node.depth].push(node);
   }
 
-  // Layout nodes (left -> right: depth -> x, index -> y)
   for (const [depth, colNodes] of Object.entries(columns)) {
     colNodes.sort((a, b) => {
       const aOut = links.filter(l => l.to === a.id).length;
@@ -303,8 +289,8 @@ function renderGraph(nodes, links, rootItem) {
       return (a.label || a.id).localeCompare(b.label || b.id);
     });
     colNodes.forEach((node, i) => {
-      node.x = Number(depth) * GRAPH_COL_WIDTH + 100;   // horizontal spacing per depth (columns)
-      node.y = i * GRAPH_ROW_HEIGHT + 100;              // vertical spacing per index (rows)
+      node.x = Number(depth) * GRAPH_COL_WIDTH + 100;
+      node.y = i * GRAPH_ROW_HEIGHT + 100;
     });
   }
 
@@ -320,10 +306,9 @@ function renderGraph(nodes, links, rootItem) {
   const contentW = (maxX - minX) + (nodeRadius * 2) + GRAPH_CONTENT_PAD * 2;
   const contentH = (maxY - minY) + (nodeRadius * 2) + GRAPH_CONTENT_PAD * 2;
 
-  // Build inner SVG
   let inner = '';
 
-  // Edges
+  // edges
   for (const link of links) {
     const from = nodes.find(n => n.id === link.from);
     const to = nodes.find(n => n.id === link.to);
@@ -336,7 +321,7 @@ function renderGraph(nodes, links, rootItem) {
     `;
   }
 
-  // Nodes
+  // nodes (group receives pointer events so clicking any child triggers handlers)
   for (const node of nodes) {
     const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
     const strokeColor = "#2c3e50";
@@ -344,7 +329,7 @@ function renderGraph(nodes, links, rootItem) {
     const labelY = node.y - GRAPH_LABEL_OFFSET;
 
     inner += `
-      <g class="graph-node" data-id="${escapeHtml(node.id)}">
+      <g class="graph-node" data-id="${escapeHtml(node.id)}" tabindex="0" role="button" aria-label="${escapeHtml(node.label)}">
         <text class="nodeLabel" x="${node.x}" y="${labelY}"
               text-anchor="middle" font-size="13" font-weight="700"
               fill="${textColor}"
@@ -353,7 +338,7 @@ function renderGraph(nodes, links, rootItem) {
         </text>
 
         <circle class="graph-node-circle" data-id="${escapeHtml(node.id)}" cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
-                fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" tabindex="0" />
+                fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" />
 
         ${node.raw ? "" : `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20" fill="${fillColor}" rx="4" ry="4" />`}
 
@@ -390,9 +375,9 @@ function renderGraph(nodes, links, rootItem) {
 }
 
 /* ===============================
-   Highlighting (upstream ripple)
-   - exclusive mode: clears previous pulses
-   - uses data-from / data-to attributes on edges
+   Pulsing helpers (outgoing highlighting)
+   - clicking a node highlights its outgoing edges (to its inputs)
+   - only immediate inputs by default (depth = 1)
    =============================== */
 function clearPulses(svg) {
   if (!svg) return;
@@ -401,16 +386,25 @@ function clearPulses(svg) {
   });
 }
 
-function highlightInputs(nodeId, svg, depth = PULSE_PROPAGATION_DEPTH) {
+function highlightOutgoing(nodeId, svg, depth = PULSE_PROPAGATION_DEPTH) {
   if (!svg || !nodeId) return;
   clearPulses(svg);
 
-  // mark origin
-  const origin = svg.querySelector(`circle.graph-node-circle[data-id="${CSS.escape(nodeId)}"]`);
-  if (!origin) return;
-  origin.classList.add('pulse-origin');
+  // mark origin (group and circle)
+  const originGroup = svg.querySelector(`g.graph-node[data-id="${CSS.escape(nodeId)}"]`);
+  const originCircle = svg.querySelector(`circle.graph-node-circle[data-id="${CSS.escape(nodeId)}"]`);
+  if (originCircle) originCircle.classList.add('pulse-origin');
+  if (originGroup) originGroup.classList.add('pulse-origin');
 
-  // BFS upstream
+  // Build outgoing map (data-from -> [edgeEls])
+  const outgoing = {};
+  Array.from(svg.querySelectorAll('line.graph-edge[data-from][data-to]')).forEach(e => {
+    const from = e.getAttribute('data-from');
+    if (!outgoing[from]) outgoing[from] = [];
+    outgoing[from].push(e);
+  });
+
+  // BFS outward (from consumer -> inputs)
   const visited = new Set();
   const queue = [{ id: nodeId, d: 0 }];
 
@@ -419,32 +413,27 @@ function highlightInputs(nodeId, svg, depth = PULSE_PROPAGATION_DEPTH) {
     if (visited.has(id)) continue;
     visited.add(id);
 
-    const incoming = Array.from(svg.querySelectorAll(`line.graph-edge[data-to="${CSS.escape(id)}"]`));
-    incoming.forEach((edgeEl, idx) => {
-      const fromId = edgeEl.getAttribute('data-from');
-      const sourceCircle = svg.querySelector(`circle.graph-node-circle[data-id="${CSS.escape(fromId)}"]`);
+    const outs = outgoing[id] || [];
+    outs.forEach((edgeEl, idx) => {
+      const toId = edgeEl.getAttribute('data-to'); // this is the input/supplier
+      const targetCircle = svg.querySelector(`circle.graph-node-circle[data-id="${CSS.escape(toId)}"]`);
+      const targetGroup = svg.querySelector(`g.graph-node[data-id="${CSS.escape(toId)}"]`);
       const delay = d * PULSE_STAGGER_MS + idx * Math.max(20, PULSE_STAGGER_MS / 2);
 
-      // staggered application for ripple feel
+      setTimeout(() => edgeEl.classList.add('pulse-edge'), delay);
       setTimeout(() => {
-        edgeEl.classList.add('pulse-edge');
-      }, delay);
+        if (targetCircle && !targetCircle.classList.contains('pulse-origin')) targetCircle.classList.add('pulse-node');
+        if (targetGroup && !targetGroup.classList.contains('pulse-origin')) targetGroup.classList.add('pulse-node');
+      }, delay + 10);
 
-      if (sourceCircle) {
-        setTimeout(() => {
-          if (!sourceCircle.classList.contains('pulse-origin')) sourceCircle.classList.add('pulse-node');
-        }, delay + 10);
-      }
-
-      if (d + 1 <= depth) queue.push({ id: fromId, d: d + 1 });
+      if (d + 1 <= depth) queue.push({ id: toId, d: d + 1 });
     });
   }
 }
 
 /* ===============================
-   Pointer-based click-vs-drag handlers for node circles
-   - prevents accidental activation while panning
-   - uses pointer events (works for mouse/touch/stylus)
+   Attach pointer handlers to groups (so clicking number/text triggers)
+   - uses pointer events and threshold to distinguish drag vs click
    =============================== */
 function attachNodePointerHandlers(wrapper) {
   if (!wrapper) return;
@@ -452,67 +441,37 @@ function attachNodePointerHandlers(wrapper) {
   if (!svg) return;
 
   // Build quick maps
-  const nodeCircles = Array.from(svg.querySelectorAll('circle.graph-node-circle[data-id]'));
+  const groups = Array.from(svg.querySelectorAll('g.graph-node[data-id]'));
   const edges = Array.from(svg.querySelectorAll('line.graph-edge[data-from][data-to]'));
 
-  const circleById = {};
-  nodeCircles.forEach(c => circleById[c.getAttribute('data-id')] = c);
-
-  const incomingMap = {}; // targetId -> [edgeElement,...]
+  // outgoing map for quick highlight
+  const outgoingMap = {};
   edges.forEach(e => {
-    const to = e.getAttribute('data-to');
-    if (!incomingMap[to]) incomingMap[to] = [];
-    incomingMap[to].push(e);
+    const from = e.getAttribute('data-from');
+    if (!outgoingMap[from]) outgoingMap[from] = [];
+    outgoingMap[from].push(e);
   });
 
-  function getThreshold(ev) {
-    return (ev && ev.pointerType === 'touch') ? TOUCH_THRESHOLD_PX : DRAG_THRESHOLD_PX;
-  }
-
-  // Upstream highlight (exclusive)
-  function highlight(nodeId) {
+  // Helper to clear pulses
+  function clearAll() {
     clearPulses(svg);
-    const origin = circleById[nodeId];
-    if (!origin) return;
-    origin.classList.add('pulse-origin');
-
-    const visited = new Set();
-    const queue = [{ id: nodeId, d: 0 }];
-
-    while (queue.length) {
-      const { id, d } = queue.shift();
-      if (visited.has(id)) continue;
-      visited.add(id);
-
-      const incoming = incomingMap[id] || [];
-      incoming.forEach((edgeEl, idx) => {
-        const fromId = edgeEl.getAttribute('data-from');
-        const sourceCircle = circleById[fromId];
-        const delay = d * PULSE_STAGGER_MS + idx * Math.max(20, PULSE_STAGGER_MS / 2);
-
-        setTimeout(() => edgeEl.classList.add('pulse-edge'), delay);
-        if (sourceCircle) {
-          setTimeout(() => {
-            if (!sourceCircle.classList.contains('pulse-origin')) sourceCircle.classList.add('pulse-node');
-          }, delay + 10);
-        }
-
-        if (d + 1 <= PULSE_PROPAGATION_DEPTH) queue.push({ id: fromId, d: d + 1 });
-      });
-    }
   }
 
-  // Attach pointer handlers to each circle
-  nodeCircles.forEach(circle => {
+  // Attach pointer handlers to each group
+  groups.forEach(group => {
     let startX = null;
     let startY = null;
     let isDragging = false;
     let pointerId = null;
 
+    function getThreshold(ev) {
+      return (ev && ev.pointerType === 'touch') ? TOUCH_THRESHOLD_PX : DRAG_THRESHOLD_PX;
+    }
+
     function onPointerDown(ev) {
-      // prevent global pan from starting (stop propagation so pan handler sees target)
+      // stop propagation so global pan doesn't start for this pointer
       ev.stopPropagation();
-      try { circle.setPointerCapture(ev.pointerId); } catch (e) {}
+      try { group.setPointerCapture(ev.pointerId); } catch (e) {}
       pointerId = ev.pointerId;
       startX = ev.clientX;
       startY = ev.clientY;
@@ -531,10 +490,11 @@ function attachNodePointerHandlers(wrapper) {
 
     function onPointerUp(ev) {
       if (pointerId === null || ev.pointerId !== pointerId) return;
-      try { circle.releasePointerCapture(ev.pointerId); } catch (e) {}
+      try { group.releasePointerCapture(ev.pointerId); } catch (e) {}
       if (!isDragging) {
-        const nodeId = circle.getAttribute('data-id');
-        highlight(nodeId);
+        const nodeId = group.getAttribute('data-id');
+        // highlight outgoing inputs only
+        highlightOutgoing(nodeId, svg, PULSE_PROPAGATION_DEPTH);
       }
       startX = startY = null;
       isDragging = false;
@@ -543,28 +503,27 @@ function attachNodePointerHandlers(wrapper) {
     }
 
     // remove previous listeners to avoid duplicates
-    circle.removeEventListener('pointerdown', onPointerDown);
-    circle.removeEventListener('pointermove', onPointerMove);
-    circle.removeEventListener('pointerup', onPointerUp);
+    group.removeEventListener('pointerdown', onPointerDown);
+    group.removeEventListener('pointermove', onPointerMove);
+    group.removeEventListener('pointerup', onPointerUp);
 
-    circle.addEventListener('pointerdown', onPointerDown);
-    circle.addEventListener('pointermove', onPointerMove);
-    circle.addEventListener('pointerup', onPointerUp);
+    group.addEventListener('pointerdown', onPointerDown);
+    group.addEventListener('pointermove', onPointerMove);
+    group.addEventListener('pointerup', onPointerUp);
 
-    // keyboard support
-    circle.setAttribute('tabindex', '0');
-    circle.addEventListener('keydown', (ev) => {
+    // keyboard support on group
+    group.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter' || ev.key === ' ') {
         ev.preventDefault();
-        const nodeId = circle.getAttribute('data-id');
-        highlight(nodeId);
+        const nodeId = group.getAttribute('data-id');
+        highlightOutgoing(nodeId, svg, PULSE_PROPAGATION_DEPTH);
       }
     });
   });
 
   // clicking outside clears pulses
   function onDocClick(e) {
-    if (!svg.contains(e.target)) clearPulses(svg);
+    if (!svg.contains(e.target)) clearAll();
   }
   document.removeEventListener('click', onDocClick);
   document.addEventListener('click', onDocClick);
@@ -578,8 +537,8 @@ function pointerIsOnNode(ev) {
 }
 
 /* ===============================
-   Zoom / pan utilities
-   (pointer-based pan with guard so nodes can handle pointer events)
+   Zoom / pan utilities (pointer-based)
+   - pan start is guarded by pointerIsOnNode so nodes handle their own pointers
    =============================== */
 function ensureResetButton() {
   let btn = document.querySelector('.graphResetButton');
@@ -686,7 +645,6 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     applyTransform();
   }
 
-  // Wheel zoom
   svg.addEventListener('wheel', (ev) => {
     ev.preventDefault();
     const delta = -ev.deltaY;
@@ -695,9 +653,8 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     zoomAt(newScale, ev.clientX, ev.clientY);
   }, { passive: false });
 
-  // Pointer-based pan start (guarded by pointerIsOnNode)
+  // pointerdown: do not start pan if pointer is on a node
   svg.addEventListener('pointerdown', (ev) => {
-    // If pointer is on a node, do not start pan here (node handlers will manage)
     if (pointerIsOnNode(ev)) return;
     if (ev.button !== 0) return;
     isPanning = true;
@@ -774,6 +731,14 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
   function getContentBBox() {
     try { return zoomLayer.getBBox(); } catch (e) { return { x: 0, y: 0, width: svg.clientWidth, height: svg.clientHeight }; }
   }
+  function getViewSizeInSvgCoords() {
+    const rect = svg.getBoundingClientRect();
+    const ptTL = svg.createSVGPoint(); ptTL.x = 0; ptTL.y = 0;
+    const ptBR = svg.createSVGPoint(); ptBR.x = rect.width; ptBR.y = rect.height;
+    const svgTL = ptTL.matrixTransform(svg.getScreenCTM().inverse());
+    const svgBR = ptBR.matrixTransform(svg.getScreenCTM().inverse());
+    return { width: svgBR.x - svgTL.x, height: svgBR.y - svgTL.y };
+  }
 }
 
 /* ===============================
@@ -803,7 +768,7 @@ function renderTable(chainObj, rootItem, rate) {
   const resetBtn = document.querySelector('#resetViewBtn');
   setupGraphZoom(wrapper, { autoFit: true, resetButtonEl: resetBtn });
 
-  // Attach pointer handlers and pulsing behavior
+  // Attach pointer handlers and pulsing behavior (groups)
   attachNodePointerHandlers(wrapper);
 
   const railSpeed = parseInt(document.getElementById("railSelect").value) || 0;
