@@ -68,6 +68,67 @@ function showToast(message) {
   }, 2500);
 }
 
+// Info bubble behavior
+(function () {
+  const infoBtn = document.getElementById('infoButton');
+  const infoPanel = document.getElementById('infoPanel');
+  const infoClose = document.getElementById('infoClose');
+  const itemSelect = document.getElementById('itemSelect');
+
+  if (!infoBtn || !infoPanel) return;
+
+  function openPanel() {
+    // Position panel to the left of the item select (or fallback near the button)
+    const btnRect = infoBtn.getBoundingClientRect();
+    const containerRect = document.getElementById('tableContainer')?.getBoundingClientRect() || document.body.getBoundingClientRect();
+
+    // Prefer placing panel below the controls and aligned with the button
+    infoPanel.style.top = (window.scrollY + btnRect.bottom + 8) + 'px';
+    infoPanel.style.left = (window.scrollX + btnRect.left) + 'px';
+
+    infoPanel.classList.add('open');
+    infoPanel.setAttribute('aria-hidden', 'false');
+    infoBtn.setAttribute('aria-expanded', 'true');
+
+    // Move focus into panel for accessibility
+    infoClose.focus();
+  }
+
+  function closePanel() {
+    infoPanel.classList.remove('open');
+    infoPanel.setAttribute('aria-hidden', 'true');
+    infoBtn.setAttribute('aria-expanded', 'false');
+    infoBtn.focus();
+  }
+
+  infoBtn.addEventListener('click', function (e) {
+    const expanded = infoBtn.getAttribute('aria-expanded') === 'true';
+    if (expanded) closePanel(); else openPanel();
+  });
+
+  infoClose.addEventListener('click', closePanel);
+
+  // Close on outside click
+  document.addEventListener('click', function (e) {
+    if (!infoPanel.classList.contains('open')) return;
+    if (infoPanel.contains(e.target) || infoBtn.contains(e.target)) return;
+    closePanel();
+  });
+
+  // Close on Escape
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && infoPanel.classList.contains('open')) closePanel();
+  });
+
+  // Reposition on resize/scroll for robustness
+  window.addEventListener('resize', function () {
+    if (infoPanel.classList.contains('open')) openPanel();
+  });
+  window.addEventListener('scroll', function () {
+    if (infoPanel.classList.contains('open')) openPanel();
+  });
+})();
+
 /* ===============================
    Data loading & recipe helpers
    =============================== */

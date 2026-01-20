@@ -68,6 +68,75 @@ header > *:not(#headerBanner) { position: absolute; z-index: 2; }
   #titleBox img { height: 50px; }
 }
 
+/* Info bubble button */
+.info-bubble {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--muted-border, #cfcfcf);
+  background: var(--panel-bg, #fff);
+  color: var(--text, #111);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .12s, transform .08s;
+}
+.info-bubble:focus { outline: 2px solid var(--accent, #72a4f2); transform: translateY(-1px); }
+
+/* Info panel */
+.info-panel {
+  position: absolute;
+  z-index: 1200;
+  width: 320px;
+  max-width: calc(100% - 32px);
+  padding: 14px;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  background: var(--panel-bg, #fff);
+  color: var(--text, #111);
+  border: 1px solid var(--muted-border, #e6e6e6);
+  display: none;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+/* Visible state */
+.info-panel.open { display: block; }
+
+/* Close button */
+.info-close {
+  margin-top: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent, #72a4f2);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* Info panel link styling */
+.info-panel a {
+  color: var(--accent, #72a4f2);
+  text-decoration: underline;
+  font-weight: 600;
+}
+
+/* Small responsive tweak: keep panel readable on narrow screens */
+@media (max-width: 520px) {
+  .info-panel { width: calc(100% - 24px); left: 12px !important; right: 12px !important; }
+}
+
+/* Dark mode variables example (if you toggle a .dark class on body) */
+body.dark {
+  --panel-bg: #111827;
+  --text: #e6eef8;
+  --muted-border: #2b3440;
+  --accent: #4aa3ff;
+}
+
 /* ============================
    Controls / Table container
    ============================ */

@@ -56,6 +56,8 @@
          CONTROLS (centered to table)
     ============================= -->
     <section id="controls">
+      <button id="infoButton" class="info-bubble" aria-expanded="false" aria-controls="infoPanel" aria-label="Info">ⓘ Info</button>
+
       <label for="itemSelect">Item:</label>
       <select id="itemSelect"></select>
 
@@ -73,6 +75,28 @@
       <button id="clearStateBtn">Clear</button>
       <button id="shareButton">Share</button>
     </section>
+
+    <!-- Info panel (hidden by default) -->
+    <div id="infoPanel" class="info-panel" role="dialog" aria-hidden="true" aria-labelledby="infoTitle">
+      <h3 id="infoTitle">About This Tool</h3>
+      <p>This calculator is maintained by StarRupture Crafting Calculations as a community resource for StarRupture players. It is a fan‑made project and is not affiliated with the StarRupture developers.</p>
+
+      <h4>How to Use</h4>
+      <ul>
+        <li><strong>Select an item</strong> from the dropdown to choose the product you want to plan.</li>
+        <li><strong>Enter your target rate</strong> (units per minute) and click Calculate to expand the full production chain.</li>
+        <li><strong>Inspect the graph</strong> — click a node to highlight only its immediate inputs; click again to clear the highlight.</li>
+        <li><strong>Pan and zoom</strong> freely; use Reset view to recenter the graph if you lose your place.</li>
+        <li><strong>View totals</strong> in the right‑hand tables for machine counts and raw extraction needs.</li>
+        <li><strong>Share setups</strong> with the Share button to generate a link that preserves item, rate, and rail settings.</li>
+      </ul>
+
+      <h4>Issues Ideas or Corrections</h4>
+      <p>If you spot incorrect data, encounter a bug, or want to suggest a feature, please contact me directly:</p>
+      <p><a href="mailto:sr.craftingcalculations@gmail.com?subject=StarRupture%20Calculator%20Feedback" id="contactEmail">sr.craftingcalculations@gmail.com</a></p>
+
+      <button id="infoClose" class="info-close" aria-label="Close info">Close</button>
+    </div>
 
     <!-- ============================
          OUTPUT + GRAPH
