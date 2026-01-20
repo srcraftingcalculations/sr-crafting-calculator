@@ -334,10 +334,13 @@ function buildGraphData(chain, rootItem) {
 })();
 
 /* ===============================
-   renderGraph (with top helper anchors for non-adjacent links)
-   - Adds top anchors when a node's output is consumed by a node more than one depth away
-   - Top anchors are included in spine calculations and rendered above the node
-   - Preserves BBM/smelter/leftmost raw rules and alphabetical layout
+   renderGraph (anchors are spine endpoints)
+   - Anchors (left/right/top) are computed and used as spine endpoints
+   - Spines connect anchor positions only; nodes connect to anchors via short connectors
+   - BBM aligned with smelter outputs; smelter left anchors hidden
+   - Raw->Smelter/BBM lines remain node-to-node (center->center)
+   - Final outputs (maxDepth) do not show right helper dot
+   - Columns sorted alphabetically top->bottom
    =============================== */
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
@@ -353,9 +356,11 @@ function renderGraph(nodes, links, rootItem) {
   for (const n of nodes) {
     if (typeof n.hasInputAnchor === 'undefined') n.hasInputAnchor = true;
     if (typeof n.hasOutputAnchor === 'undefined') n.hasOutputAnchor = true;
-    // new flag for top anchor (default false)
     if (typeof n.hasTopAnchor === 'undefined') n.hasTopAnchor = false;
   }
+
+  // Map for quick lookup
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
 
   // Align BBM with canonical smelter outputs if present
   const targetNodes = nodes.filter(n => TARGET_SMELTER_OUTPUTS.includes(n.id));
@@ -373,17 +378,13 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
-  // --- Detect non-adjacent consumption and mark top anchors ---
-  // For each source node, if any consumer uses it and consumer.depth - source.depth > 1, mark hasTopAnchor = true
-  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  // Detect non-adjacent consumption and mark top anchors
   for (const link of links) {
     const consumer = nodeById.get(link.from);
     const source = nodeById.get(link.to);
     if (!consumer || !source) continue;
     if (typeof consumer.depth !== 'number' || typeof source.depth !== 'number') continue;
-    if ((consumer.depth - source.depth) > 1) {
-      source.hasTopAnchor = true;
-    }
+    if ((consumer.depth - source.depth) > 1) source.hasTopAnchor = true;
   }
 
   // Group nodes by depth
@@ -415,70 +416,68 @@ function renderGraph(nodes, links, rootItem) {
   const contentW = (maxX - minX) + (nodeRadius * 2) + GRAPH_CONTENT_PAD * 2;
   const contentH = (maxY - minY) + (nodeRadius * 2) + GRAPH_CONTENT_PAD * 2;
 
-  // Helper functions for anchor positions
-  function outputAnchorPos(node) {
-    return { x: node.x + nodeRadius + ANCHOR_OFFSET, y: node.y };
-  }
-  function inputAnchorPos(node) {
-    return { x: node.x - nodeRadius - ANCHOR_OFFSET, y: node.y };
-  }
-  function topAnchorPos(node) {
-    return { x: node.x, y: node.y - nodeRadius - ANCHOR_OFFSET };
-  }
+  // Anchor position helpers (anchors are separate from nodes)
+  function anchorRightPos(node) { return { x: node.x + nodeRadius + ANCHOR_OFFSET, y: node.y }; }
+  function anchorLeftPos(node)  { return { x: node.x - nodeRadius - ANCHOR_OFFSET, y: node.y }; }
+  function anchorTopPos(node)   { return { x: node.x, y: node.y - nodeRadius - ANCHOR_OFFSET }; }
 
-  // Determine leftmost depth (minDepth) and rightmost depth (maxDepth)
+  // Determine leftmost and rightmost depths
   const minDepth = nodes.length ? Math.min(...nodes.map(n => n.depth)) : 0;
   const maxDepth = nodes.length ? Math.max(...nodes.map(n => n.depth)) : 0;
 
-  // Build spine SVG fragments (draw behind nodes)
+  // Build spine SVG fragments using anchor positions only
   let spineSvg = '';
   (function buildSpines() {
     const depths = Object.keys(columns).map(d => Number(d)).sort((a, b) => a - b);
+
     for (let i = 0; i < depths.length; i++) {
       const depth = depths[i];
       const colNodes = columns[depth] || [];
 
-      // Collect output anchor positions in this column:
-      // include right anchors and top anchors (top anchors are considered part of the "output set")
-      const outputs = [];
+      // Collect anchor positions for this column (right anchors + top anchors)
+      const anchors = [];
       for (const n of colNodes) {
-        if (n.hasTopAnchor && !(n.raw && n.depth === minDepth)) outputs.push(topAnchorPos(n));
-        if ((n.hasOutputAnchor || (n.id === BBM_ID || n.label === BBM_ID)) && !(n.raw && n.depth === minDepth)) outputs.push(outputAnchorPos(n));
+        // exclude leftmost raw nodes from anchors
+        if (n.raw && n.depth === minDepth) continue;
+        if (n.hasTopAnchor) anchors.push(anchorTopPos(n));
+        if (n.hasOutputAnchor || (n.id === BBM_ID || n.label === BBM_ID)) anchors.push(anchorRightPos(n));
       }
 
-      if (outputs.length === 0) continue;
+      if (anchors.length === 0) continue;
 
-      const ysOut = outputs.map(p => p.y);
-      const topOutY = Math.min(...ysOut);
-      const bottomOutY = Math.max(...ysOut);
-      const spineX = outputs[0].x;
+      // Use anchor positions for spine extents
+      const ysAnch = anchors.map(p => p.y);
+      const topAnchorY = Math.min(...ysAnch);
+      const bottomAnchorY = Math.max(...ysAnch);
+      const spineX = anchors[0].x;
 
-      // Vertical spine (bottom -> top)
+      // Vertical spine for this column (bottom -> top)
       spineSvg += `
-        <line class="graph-spine-vertical" x1="${spineX}" y1="${bottomOutY}" x2="${spineX}" y2="${topOutY}"
+        <line class="graph-spine-vertical" x1="${spineX}" y1="${bottomAnchorY}" x2="${spineX}" y2="${topAnchorY}"
               stroke="#666" stroke-width="2" stroke-linecap="round" opacity="0.95" />
       `;
 
-      // If next column exists, connect to its input anchors
+      // Connect to next column's input anchors (use input anchor positions)
       if (i + 1 < depths.length) {
         const nextDepth = depths[i + 1];
         const nextColNodes = columns[nextDepth] || [];
 
-        // Input anchors in next column (include top anchors if present there? top anchors are outputs, not inputs)
-        const inputs = nextColNodes
-          .filter(n => n.hasInputAnchor && !(n.raw && n.depth === minDepth))
-          .map(n => inputAnchorPos(n));
+        const nextInputs = [];
+        for (const n of nextColNodes) {
+          if (n.raw && n.depth === minDepth) continue;
+          if (n.hasInputAnchor) nextInputs.push(anchorLeftPos(n));
+        }
 
-        if (inputs.length > 0) {
-          const topInY = Math.min(...inputs.map(p => p.y));
-          const bottomInY = Math.max(...inputs.map(p => p.y));
-          const nextSpineX = inputs[0].x;
+        if (nextInputs.length > 0) {
+          const topInY = Math.min(...nextInputs.map(p => p.y));
+          const bottomInY = Math.max(...nextInputs.map(p => p.y));
+          const nextSpineX = nextInputs[0].x;
 
           // Horizontal connector from top of current spine to next column's top input x
           spineSvg += `
-            <line class="graph-spine-horizontal" x1="${spineX}" y1="${topOutY}" x2="${nextSpineX}" y2="${topOutY}"
+            <line class="graph-spine-horizontal" x1="${spineX}" y1="${topAnchorY}" x2="${nextSpineX}" y2="${topAnchorY}"
                   stroke="#666" stroke-width="2" stroke-linecap="round" opacity="0.95" />
-            <line class="graph-spine-horizontal" x1="${nextSpineX}" y1="${topOutY}" x2="${nextSpineX}" y2="${topInY}"
+            <line class="graph-spine-horizontal" x1="${nextSpineX}" y1="${topAnchorY}" x2="${nextSpineX}" y2="${topInY}"
                   stroke="#666" stroke-width="2" stroke-linecap="round" opacity="0.95" />
             <line class="graph-spine-vertical" x1="${nextSpineX}" y1="${topInY}" x2="${nextSpineX}" y2="${bottomInY}"
                   stroke="#666" stroke-width="2" stroke-linecap="round" opacity="0.95" />
@@ -488,60 +487,48 @@ function renderGraph(nodes, links, rootItem) {
     }
   })();
 
-  // Build inner SVG: start with spines so they render behind nodes
+  // Start building inner SVG with spines (so anchors/dots render on top)
   let inner = spineSvg;
 
-  // --- Edges: draw only raw->Smelter or raw->BBM lines, node-to-node (center->center) ---
+  // Draw raw->Smelter/BBM node-to-node edges (center->center)
   for (const link of links) {
     const rawSource = nodeById.get(link.to);
     const consumer = nodeById.get(link.from);
     if (!rawSource || !consumer) continue;
-
     const consumerIsBBM = (consumer.id === BBM_ID || consumer.label === BBM_ID);
-
     if (rawSource.raw && rawSource.depth === minDepth && (consumer.building === 'Smelter' || consumerIsBBM)) {
-      const startX = rawSource.x;
-      const startY = rawSource.y;
-      const endX = consumer.x;
-      const endY = consumer.y;
-
       inner += `
         <line class="graph-edge graph-edge-raw" data-from="${escapeHtml(rawSource.id)}" data-to="${escapeHtml(consumer.id)}"
-              x1="${startX}" y1="${startY}"
-              x2="${endX}" y2="${endY}"
+              x1="${rawSource.x}" y1="${rawSource.y}"
+              x2="${consumer.x}" y2="${consumer.y}"
               stroke="#333" stroke-width="2.6" stroke-linecap="round" />
       `;
     }
   }
 
-  // Nodes + anchors + connector lines (connector lines drawn before anchor dots so dots sit on top)
+  // Nodes, connectors, and anchor dots (anchors are separate elements used by spine)
   for (const node of nodes) {
     const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
     const strokeColor = "#2c3e50";
     const textColor = getTextColor(fillColor);
     const labelY = node.y - GRAPH_LABEL_OFFSET;
 
-    // Hide helper dots for leftmost raw nodes only
     const hideAllAnchors = (node.raw && node.depth === minDepth);
-
-    // Smelters: hide left anchor explicitly
     const isSmelter = (node.building === 'Smelter');
     const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
 
-    // Left anchor: only show if node.hasInputAnchor && not leftmost raw && not smelter && not BBM
+    // Left anchor: show if allowed and not smelter/BBM and not leftmost raw
     const showLeftAnchor = !hideAllAnchors && node.hasInputAnchor && !isSmelter && !isBBM;
-
-    // Right anchor: show for nodes that haveOutputAnchor (or BBM always shows right) BUT NOT for final outputs (maxDepth)
+    // Right anchor: show if allowed and not final output (maxDepth)
     const showRightAnchor = !hideAllAnchors && (node.hasOutputAnchor || isBBM) && (node.depth !== maxDepth);
-
-    // Top anchor: show if node.hasTopAnchor (and not leftmost raw)
+    // Top anchor: show if flagged (non-adjacent consumer)
     const showTopAnchor = !hideAllAnchors && node.hasTopAnchor;
 
-    // Connector lines from node edge to anchor dot (draw before anchor dot so dot overlays)
+    // Draw connectors from node edge to anchor positions (connectors are visual only)
     if (showLeftAnchor) {
-      const startX = node.x - nodeRadius; // node edge
+      const startX = node.x - nodeRadius;
       const startY = node.y;
-      const end = inputAnchorPos(node);
+      const end = anchorLeftPos(node);
       inner += `
         <line class="anchor-connector anchor-connector-left" x1="${startX}" y1="${startY}" x2="${end.x}" y2="${end.y}"
               stroke="${isDark ? '#444' : '#666'}" stroke-width="1.8" stroke-linecap="round" opacity="0.95" />
@@ -549,9 +536,9 @@ function renderGraph(nodes, links, rootItem) {
     }
 
     if (showRightAnchor) {
-      const startX = node.x + nodeRadius; // node edge
+      const startX = node.x + nodeRadius;
       const startY = node.y;
-      const end = outputAnchorPos(node);
+      const end = anchorRightPos(node);
       inner += `
         <line class="anchor-connector anchor-connector-right" x1="${startX}" y1="${startY}" x2="${end.x}" y2="${end.y}"
               stroke="${isDark ? '#444' : '#666'}" stroke-width="1.8" stroke-linecap="round" opacity="0.95" />
@@ -560,8 +547,8 @@ function renderGraph(nodes, links, rootItem) {
 
     if (showTopAnchor) {
       const startX = node.x;
-      const startY = node.y - nodeRadius; // top edge of node
-      const end = topAnchorPos(node);
+      const startY = node.y - nodeRadius;
+      const end = anchorTopPos(node);
       inner += `
         <line class="anchor-connector anchor-connector-top" x1="${startX}" y1="${startY}" x2="${end.x}" y2="${end.y}"
               stroke="${isDark ? '#444' : '#666'}" stroke-width="1.8" stroke-linecap="round" opacity="0.95" />
@@ -589,36 +576,31 @@ function renderGraph(nodes, links, rootItem) {
         </text>
     `;
 
-    // Left input anchor (render when allowed)
+    // Render anchor dots (these are the spine endpoints)
     if (showLeftAnchor) {
-      const ax = node.x - nodeRadius - ANCHOR_OFFSET;
-      const ay = node.y;
+      const a = anchorLeftPos(node);
       inner += `
-        <g class="anchor anchor-left" data-node="${escapeHtml(node.id)}" data-side="left" transform="translate(${ax},${ay})" tabindex="0" role="button" aria-label="Input anchor for ${escapeHtml(node.label)}">
+        <g class="anchor anchor-left" data-node="${escapeHtml(node.id)}" data-side="left" transform="translate(${a.x},${a.y})" tabindex="0" role="button" aria-label="Input anchor for ${escapeHtml(node.label)}">
           <circle class="anchor-hit" cx="0" cy="0" r="${ANCHOR_HIT_RADIUS}" fill="transparent" pointer-events="all" />
           <circle class="anchor-dot" cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="${isDark ? '#ffffff' : '#2c3e50'}" stroke="${isDark ? '#000' : '#fff'}" stroke-width="1.2" />
         </g>
       `;
     }
 
-    // Right output anchor (render when allowed)
     if (showRightAnchor) {
-      const bx = node.x + nodeRadius + ANCHOR_OFFSET;
-      const by = node.y;
+      const a = anchorRightPos(node);
       inner += `
-        <g class="anchor anchor-right" data-node="${escapeHtml(node.id)}" data-side="right" transform="translate(${bx},${by})" tabindex="0" role="button" aria-label="Output anchor for ${escapeHtml(node.label)}">
+        <g class="anchor anchor-right" data-node="${escapeHtml(node.id)}" data-side="right" transform="translate(${a.x},${a.y})" tabindex="0" role="button" aria-label="Output anchor for ${escapeHtml(node.label)}">
           <circle class="anchor-hit" cx="0" cy="0" r="${ANCHOR_HIT_RADIUS}" fill="transparent" pointer-events="all" />
           <circle class="anchor-dot" cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="${isDark ? '#ffffff' : '#2c3e50'}" stroke="${isDark ? '#000' : '#fff'}" stroke-width="1.2" />
         </g>
       `;
     }
 
-    // Top anchor (render above node when flagged)
     if (showTopAnchor) {
-      const tx = node.x;
-      const ty = node.y - nodeRadius - ANCHOR_OFFSET;
+      const a = anchorTopPos(node);
       inner += `
-        <g class="anchor anchor-top" data-node="${escapeHtml(node.id)}" data-side="top" transform="translate(${tx},${ty})" tabindex="0" role="button" aria-label="Top anchor for ${escapeHtml(node.label)}">
+        <g class="anchor anchor-top" data-node="${escapeHtml(node.id)}" data-side="top" transform="translate(${a.x},${a.y})" tabindex="0" role="button" aria-label="Top anchor for ${escapeHtml(node.label)}">
           <circle class="anchor-hit" cx="0" cy="0" r="${ANCHOR_HIT_RADIUS}" fill="transparent" pointer-events="all" />
           <circle class="anchor-dot" cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="${isDark ? '#ffffff' : '#2c3e50'}" stroke="${isDark ? '#000' : '#fff'}" stroke-width="1.2" />
         </g>
@@ -628,6 +610,7 @@ function renderGraph(nodes, links, rootItem) {
     inner += `</g>`;
   }
 
+  // Final SVG wrapper
   const viewBoxX = Math.floor(contentX);
   const viewBoxY = Math.floor(contentY);
   const viewBoxW = Math.ceil(contentW);
