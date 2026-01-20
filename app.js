@@ -334,12 +334,10 @@ function buildGraphData(chain, rootItem) {
 })();
 
 /* ===============================
-   renderGraph (BBM forced to level 0 semantics)
-   - Places BBM in the column that corresponds to nodes with level === 0
-   - If no nodes have level, falls back to leftmost column (minDepth)
-   - BBM behaves like a smelter target: hide left anchor, show right anchor
-   - Draws direct node->node wires only for far-left raw sources to Smelters OR to BBM
-   - Columns sorted alphabetically top->bottom
+   renderGraph (BBM forced to the column used by level 0)
+   - Finds the depth/column used by nodes with level === 0 and forces BBM there
+   - If no nodes have level === 0, does not force BBM to minDepth (avoids far-left)
+   - Keeps alphabetical ordering, anchor rules, and only draws far-left raw -> Smelter/BBM wires
    =============================== */
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
@@ -349,47 +347,37 @@ function renderGraph(nodes, links, rootItem) {
 
   const BBM_ID = 'Basic Building Material';
 
-  // --- Determine target depth for "level 0" ---
-  // If nodes include a numeric `level` property, find the depth used by level 0 nodes.
-  // Otherwise, fall back to the leftmost depth (minDepth).
+  // --- Determine the target depth/column for level 0 ---
+  // Find nodes that explicitly have level === 0
+  const level0Nodes = nodes.filter(n => n.level === 0);
+
+  // If there are level0 nodes, compute the depth column they occupy (use the most common depth among them)
   let targetDepthForLevel0 = null;
-  const nodesWithLevel0 = nodes.filter(n => n.level === 0);
-  if (nodesWithLevel0.length > 0) {
-    // If any nodes already have depth assigned, use their depth as the target column
-    const depthsForLevel0 = nodesWithLevel0.map(n => (typeof n.depth === 'number' ? n.depth : Infinity)).filter(d => isFinite(d));
-    if (depthsForLevel0.length > 0) {
-      targetDepthForLevel0 = Math.min(...depthsForLevel0);
-    } else {
-      // If no depth assigned yet, we'll compute depths first and then set BBM below
-      targetDepthForLevel0 = null;
+  if (level0Nodes.length > 0) {
+    const depthCounts = {};
+    for (const n of level0Nodes) {
+      if (typeof n.depth === 'number') {
+        depthCounts[n.depth] = (depthCounts[n.depth] || 0) + 1;
+      }
+    }
+    const depths = Object.keys(depthCounts).map(d => Number(d));
+    if (depths.length > 0) {
+      // choose the depth with the highest count (mode)
+      depths.sort((a, b) => depthCounts[b] - depthCounts[a]);
+      targetDepthForLevel0 = depths[0];
     }
   }
 
-  // Group nodes by depth (if depths not set yet, compute a temporary layout first)
-  // If depths are missing, assume computeDepths has been run earlier; otherwise compute a simple fallback
-  if (!nodes.some(n => typeof n.depth === 'number')) {
-    // fallback: assign depth 0 to raw nodes, 1 to their consumers (simple)
-    const minDepthFallback = 0;
-    for (const n of nodes) {
-      n.depth = n.raw ? minDepthFallback : (n.depth ?? minDepthFallback + 1);
-    }
+  // If we couldn't determine a target depth from level property, do NOT force BBM to minDepth.
+  // This prevents accidentally moving BBM to the far-left when you don't have level metadata.
+
+  // If targetDepthForLevel0 is found, force BBM into that depth
+  if (targetDepthForLevel0 !== null) {
+    const bbmNode = nodes.find(n => n.id === BBM_ID || n.label === BBM_ID);
+    if (bbmNode) bbmNode.depth = targetDepthForLevel0;
   }
 
-  // If we didn't determine targetDepthForLevel0 earlier, try now from nodes with level 0
-  if (targetDepthForLevel0 === null && nodesWithLevel0.length > 0) {
-    const depthsForLevel0 = nodesWithLevel0.map(n => n.depth ?? Infinity).filter(d => isFinite(d));
-    if (depthsForLevel0.length > 0) targetDepthForLevel0 = Math.min(...depthsForLevel0);
-  }
-
-  // If still null, fall back to leftmost depth
-  const currentMinDepth = nodes.length ? Math.min(...nodes.map(n => n.depth)) : 0;
-  if (targetDepthForLevel0 === null) targetDepthForLevel0 = currentMinDepth;
-
-  // Force BBM node depth to the target depth (level 0 column)
-  const bbmNode = nodes.find(n => n.id === BBM_ID || n.label === BBM_ID);
-  if (bbmNode) bbmNode.depth = targetDepthForLevel0;
-
-  // Re-group nodes by depth after forcing BBM
+  // --- Group nodes by depth (after optional BBM adjustment) ---
   const columns = {};
   for (const node of nodes) {
     if (!columns[node.depth]) columns[node.depth] = [];
@@ -437,7 +425,7 @@ function renderGraph(nodes, links, rootItem) {
     `;
   }
 
-  // Determine leftmost depth (minDepth) after forcing BBM
+  // Determine leftmost depth (minDepth)
   const minDepth = nodes.length ? Math.min(...nodes.map(n => n.depth)) : 0;
 
   // --- Edges: draw direct node-to-node wires only for far-left raw sources to Smelters OR to BBM ---
@@ -447,10 +435,11 @@ function renderGraph(nodes, links, rootItem) {
     const consumer = nodes.find(n => n.id === link.from);
     if (!rawSource || !consumer) continue;
 
-    // Condition: source is raw, on leftmost column, and consumer is Smelter OR consumer is BBM
     const consumerIsBBM = (consumer.id === BBM_ID || consumer.label === BBM_ID);
+
+    // Only draw when source is raw, on leftmost column, and consumer is Smelter OR BBM
     if (rawSource.raw && rawSource.depth === minDepth && (consumer.building === 'Smelter' || consumerIsBBM)) {
-      const startX = rawSource.x; // start at raw center
+      const startX = rawSource.x;
       const startY = rawSource.y;
       const endX = consumer.hasInputAnchor ? (consumer.x - nodeRadius - 10) : consumer.x;
       const endY = consumer.y;
@@ -474,9 +463,7 @@ function renderGraph(nodes, links, rootItem) {
     // Hide helper dots for leftmost raw nodes
     const hideAllAnchors = (node.raw && node.depth === minDepth);
 
-    // Special BBM anchor rule: BBM behaves like a smelter target:
-    // - hide its left anchor (no helper dot on left)
-    // - always show its right output helper dot
+    // BBM special behavior: treat like smelter target (hide left anchor, show right anchor)
     const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
     const showLeftAnchor = !hideAllAnchors && node.hasInputAnchor && !isBBM;
     const showRightAnchor = !hideAllAnchors && (node.hasOutputAnchor || isBBM);
@@ -501,7 +488,6 @@ function renderGraph(nodes, links, rootItem) {
         </text>
     `;
 
-    // Left input anchor (render only if allowed and not BBM)
     if (showLeftAnchor) {
       const ax = node.x - nodeRadius - 10;
       const ay = node.y;
@@ -513,7 +499,6 @@ function renderGraph(nodes, links, rootItem) {
       `;
     }
 
-    // Right output anchor (render if allowed or if BBM)
     if (showRightAnchor) {
       const bx = node.x + nodeRadius + 10;
       const by = node.y;
