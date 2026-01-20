@@ -1,5 +1,5 @@
 // ===============================
-// app.js - Full updated script (single Reset button)
+// app.js - Full updated script (numbers centered reliably)
 // ===============================
 
 // ===============================
@@ -22,6 +22,9 @@ async function loadRecipes() {
 let RECIPES = {};
 let TIERS = {};
 
+// ===============================
+// Utilities
+// ===============================
 function getTextColor(bg) {
   if (!bg || bg[0] !== "#") return "#000000";
   const r = parseInt(bg.substr(1, 2), 16);
@@ -48,9 +51,6 @@ const SPECIAL_EXTRACTORS = {
   "Sulphur Ore": 240
 };
 
-// ===============================
-// Helpers
-// ===============================
 function getRecipe(name) {
   return RECIPES[name] || null;
 }
@@ -71,11 +71,11 @@ function showToast(message) {
   setTimeout(() => {
     toast.classList.remove("show");
     setTimeout(() => toast.remove(), 300);
-  }, 3000);
+  }, 2500);
 }
 
 // ===============================
-// Chain Expansion
+// Expand production chain
 // ===============================
 function expandChain(item, targetRate) {
   const chain = {};
@@ -86,8 +86,7 @@ function expandChain(item, targetRate) {
   const queue = [];
 
   function trackExtractor(name, rate) {
-    if (!extractorTotals[name]) extractorTotals[name] = 0;
-    extractorTotals[name] += rate;
+    extractorTotals[name] = (extractorTotals[name] || 0) + rate;
   }
 
   function enqueue(name, rate) {
@@ -145,11 +144,12 @@ function expandChain(item, targetRate) {
 }
 
 // ===============================
-// Depths & Graph Data
+// Depths & graph data
 // ===============================
 function computeDepths(chain, rootItem) {
   const consumers = {};
   const depths = {};
+
   for (const [item, data] of Object.entries(chain)) {
     for (const input of Object.keys(data.inputs || {})) {
       if (!consumers[input]) consumers[input] = [];
@@ -158,6 +158,7 @@ function computeDepths(chain, rootItem) {
   }
 
   depths[rootItem] = 999;
+
   let changed = true;
   while (changed) {
     changed = false;
@@ -224,26 +225,26 @@ function buildGraphData(chain, rootItem) {
 }
 
 // ===============================
-// Render Graph (no controls inside)
+// Render graph (numbers centered)
 // ===============================
-// Replace your existing renderGraph with this version
-// Replace your existing renderGraph with this version
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
-  const isDark = document.body.classList.contains("dark-mode");
+  const isDark = document.body.classList.contains("dark");
 
+  // Group nodes by depth
   const columns = {};
   for (const node of nodes) {
     if (!columns[node.depth]) columns[node.depth] = [];
     columns[node.depth].push(node);
   }
 
-  // spacing tweaks (adjust if you want more/less space)
+  // Spacing parameters (tweak if needed)
   const colWidth = 220;
   const rowHeight = 120;
   const labelOffset = 40;
   const contentPad = 64;
 
+  // Layout nodes
   for (const [depth, colNodes] of Object.entries(columns)) {
     colNodes.sort((a, b) => {
       const aOut = links.filter(l => l.to === a.id).length;
@@ -264,11 +265,13 @@ function renderGraph(nodes, links, rootItem) {
   const minY = nodes.length ? Math.min(...ys) : 0;
   const maxY = nodes.length ? Math.max(...ys) : 0;
 
+  // Content bbox with padding so panning doesn't clip nodes
   const contentX = minX - nodeRadius - contentPad;
   const contentY = minY - nodeRadius - contentPad;
   const contentW = (maxX - minX) + (nodeRadius * 2) + contentPad * 2;
   const contentH = (maxY - minY) + (nodeRadius * 2) + contentPad * 2;
 
+  // Build inner SVG
   let inner = '';
 
   for (const link of links) {
@@ -290,14 +293,14 @@ function renderGraph(nodes, links, rootItem) {
 
     const labelY = node.y - labelOffset;
 
+    // IMPORTANT: number text is placed exactly at node.y and uses baseline CSS to center.
     inner += `
       <g>
         <text class="nodeLabel" x="${node.x}" y="${labelY}"
               text-anchor="middle" font-size="13" font-weight="700"
               fill="${textColor}"
-              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6"
-              paint-order="stroke">
-          ${node.label}
+              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke">
+          ${escapeHtml(node.label)}
         </text>
 
         <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
@@ -308,13 +311,10 @@ function renderGraph(nodes, links, rootItem) {
                  fill="${fillColor}" rx="4" ry="4" />`
         )}
 
-        <!-- draw the number exactly at node.y and use dy to visually center -->
         <text class="nodeNumber" x="${node.x}" y="${node.y}"
-              dy=".35em"
               text-anchor="middle" font-size="13" font-weight="700"
               fill="${textColor}"
-              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6"
-              paint-order="stroke">
+              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke">
           ${node.raw ? "" : Math.ceil(node.machines)}
         </text>
       </g>
@@ -344,26 +344,30 @@ function renderGraph(nodes, links, rootItem) {
   return svg;
 }
 
+// small helper to avoid injecting raw HTML from labels
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 // ===============================
-// Create single Reset button (below table, above graph)
+// Reset button helper
 // ===============================
 function ensureResetButton() {
   let btn = document.querySelector('.graphResetButton');
   if (btn) return btn;
-
+  const container = document.getElementById('tableContainer') || document.body;
   btn = document.createElement('div');
   btn.className = 'graphResetButton';
   btn.innerHTML = `<button id="resetViewBtn" type="button">Reset view</button>`;
-
-  // Insert the reset button into the DOM: place it inside #tableContainer (below tables)
-  const tableContainer = document.getElementById('tableContainer') || document.body;
-  tableContainer.appendChild(btn);
-
+  container.appendChild(btn);
   return btn;
 }
 
 // ===============================
-// Graph Zoom / Pan Setup (no slider; reset button used)
+// Zoom / pan setup (wheel + drag + reset)
 // ===============================
 function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = {}) {
   if (!containerEl) return;
@@ -371,7 +375,6 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
   const svg = containerEl.querySelector('svg.graphSVG');
   const zoomLayer = svg.querySelector('#zoomLayer');
 
-  // Reset button (external)
   const resetBtn = resetButtonEl || document.querySelector('#resetViewBtn');
 
   let scale = 1;
@@ -460,7 +463,7 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     applyTransform();
   }
 
-  // Wheel zoom (mouse) and pinch handled below
+  // Wheel zoom
   svg.addEventListener('wheel', (ev) => {
     ev.preventDefault();
     const delta = -ev.deltaY;
@@ -469,7 +472,7 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     zoomAt(newScale, ev.clientX, ev.clientY);
   }, { passive: false });
 
-  // Pan (left click always pans)
+  // Pan (left click)
   svg.addEventListener('mousedown', (ev) => {
     if (ev.button !== 0) return;
     isPanning = true;
@@ -578,7 +581,6 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     applyTransform();
   }
 
-  // Wire reset button
   if (resetBtn) {
     resetBtn.addEventListener('click', () => {
       computeAutoFit();
@@ -586,22 +588,16 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     });
   }
 
-  const onScrollOrResize = () => { /* no-op for controls positioning here */ };
-  window.addEventListener('scroll', onScrollOrResize, { passive: true });
-  window.addEventListener('resize', onScrollOrResize);
-
   if (autoFit) requestAnimationFrame(() => computeAutoFit());
   else applyTransform();
 
   containerEl._teardownGraphZoom = () => {
-    window.removeEventListener('scroll', onScrollOrResize);
-    window.removeEventListener('resize', onScrollOrResize);
-    // no pinned controls to remove
+    // no-op cleanup placeholder (listeners are global; if you re-render often you may want to remove them)
   };
 }
 
 // ===============================
-// Table Rendering (injects graph + table + reset button)
+// Render table + graph
 // ===============================
 function renderTable(chainObj, rootItem, rate) {
   const { chain, machineTotals, extractorTotals } = chainObj;
@@ -616,13 +612,11 @@ function renderTable(chainObj, rootItem, rate) {
     try { prevWrapper._teardownGraphZoom(); } catch (e) { /* ignore */ }
   }
 
-  // Ensure reset button exists and is placed below tables (above graph)
-  const resetContainer = ensureResetButton();
+  // Ensure reset button exists
+  ensureResetButton();
 
   graphArea.innerHTML = graphHTML;
   const wrapper = graphArea.querySelector(".graphWrapper");
-
-  // Pass the reset button element to setupGraphZoom
   const resetBtn = document.querySelector('#resetViewBtn');
   setupGraphZoom(wrapper, { autoFit: true, resetButtonEl: resetBtn });
 
@@ -730,7 +724,7 @@ function renderTable(chainObj, rootItem, rate) {
 }
 
 // ===============================
-// Calculator Trigger
+// Run calculator
 // ===============================
 function runCalculator() {
   const item = document.getElementById('itemSelect').value;
@@ -751,7 +745,7 @@ function runCalculator() {
 }
 
 // ===============================
-// Dark Mode Toggle
+// Dark mode toggle
 // ===============================
 function setupDarkMode() {
   const toggle = document.getElementById("darkModeToggle");
