@@ -354,18 +354,14 @@ function renderGraph(nodes, links, rootItem) {
   }
 
   // Layout nodes (left -> right: depth -> x, index -> y)
-  for (const [depth, colNodes] of Object.entries(columns)) {
-    colNodes.sort((a, b) => {
-      const aOut = links.filter(l => l.to === a.id).length;
-      const bOut = links.filter(l => l.to === b.id).length;
-      if (bOut !== aOut) return bOut - aOut;
-      return (a.label || a.id).localeCompare(b.label || b.id);
-    });
-    colNodes.forEach((node, i) => {
-      node.x = Number(depth) * GRAPH_COL_WIDTH + 100;
-      node.y = i * GRAPH_ROW_HEIGHT + 100;
-    });
-  }
+for (const [depth, colNodes] of Object.entries(columns)) {
+  // Sort alphabetically by label (A -> Z) top to bottom
+  colNodes.sort((a, b) => (String(a.label || a.id)).localeCompare(String(b.label || b.id), undefined, { sensitivity: 'base' }));
+  colNodes.forEach((node, i) => {
+    node.x = Number(depth) * GRAPH_COL_WIDTH + 100;
+    node.y = i * GRAPH_ROW_HEIGHT + 100;
+  });
+}
 
   // Bounds
   const xs = nodes.map(n => n.x);
