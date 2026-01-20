@@ -16,33 +16,24 @@ header {
   position: relative;
   overflow: hidden;
   width: 100%;
-  /* This ensures the header is ALWAYS 160px regardless of screen width */
   height: 160px;
-
-  /* Background Image Logic */
   background-image: url('data/SRCC_Banner_2.png');
   background-position: center 20%;
   background-size: cover;
   background-repeat: no-repeat;
-
-  /* Aesthetic: A dark gradient overlay to ensure white text/logos are readable */
   background-color: #1a0a05;
   box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.6);
 }
 
-/* We hide the old img tag if it's still in your HTML */
 #headerBanner {
   display: none;
 }
 
-/* Overlay content (logo, title, toggle) */
-/* These remain absolute to float OVER the background image */
 header > *:not(#headerBanner) {
   position: absolute;
   z-index: 2;
 }
 
-/* Logo box - Positioned Left */
 #logoBox {
   top: 50%;
   left: 20px;
@@ -63,7 +54,6 @@ header > *:not(#headerBanner) {
   display: block;
 }
 
-/* Title image - Positioned Center */
 #titleBox {
   top: 50%;
   left: 50%;
@@ -76,7 +66,6 @@ header > *:not(#headerBanner) {
   object-fit: contain;
 }
 
-/* Dark mode toggle - Positioned Right */
 #darkModeToggle {
   top: 50%;
   right: 20px;
@@ -95,7 +84,6 @@ header > *:not(#headerBanner) {
   transform: translateY(-50%) scale(1.05);
 }
 
-/* Responsive adjustment for very small phones */
 @media (max-width: 480px) {
   #logoBox { left: 10px; padding: 4px; }
   #darkModeToggle { right: 10px; padding: 6px 10px; font-size: 12px; }
@@ -169,21 +157,32 @@ table td {
 }
 
 /* ============================
-   Graph wrapper: scrolling + layout
-   Constrain to viewport and allow scrolling
+   Graph wrapper: auto-fit + pan/zoom
+   (initially no scrollbars; panning via transform)
 ============================ */
 .graphWrapper {
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
-  /* Limit height so graph "fits" inside the browser window.
-     Adjust the subtraction value if you have a tall header/footer. */
   max-height: calc(100vh - 220px);
-  overflow-x: auto;   /* allow horizontal scrolling when SVG is wider */
-  overflow-y: auto;   /* allow vertical scrolling if SVG is taller than max-height */
+  overflow: hidden; /* hide scrollbars; panning handled by transform */
   padding: 8px;
   border-radius: 6px;
   background: rgba(255,255,255,0.02);
+}
+
+/* Ensure SVG fills the wrapper and respects viewBox (auto-fit) */
+.graphWrapper .graphViewport {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.graphWrapper svg.graphSVG {
+  width: 100%;
+  height: auto;
+  display: block;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Controls row (visual styling) */
@@ -201,7 +200,7 @@ table td {
 }
 
 /* When JS pins controls, it sets inline position styles.
-   This class is a fallback and keeps visual consistency. */
+   This class keeps visual consistency if needed. */
 .graphControls.fixed {
   position: fixed;
   left: 50%;
@@ -224,16 +223,16 @@ table td {
   width: 220px;
 }
 
-/* Viewport holds the SVG and provides scrollbars */
+/* Viewport holds the SVG */
 .graphViewport {
   overflow: visible;
 }
 
 /* Cursor styles for panning */
-.graphSVG { display: block; user-select: none; -webkit-user-select: none; }
+.graphSVG { cursor: grab; display: block; }
 .graphSVG:active { cursor: grabbing; }
 
-/* Optional: nicer scrollbars */
+/* Optional: nicer scrollbars if ever enabled */
 .graphWrapper::-webkit-scrollbar { height: 10px; width: 10px; }
 .graphWrapper::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 6px; }
 
@@ -273,14 +272,13 @@ body.dark #graphArea svg text {
   fill: #ddd;
 }
 
-/* Dark mode header adjustments */
 body.dark #logoBox {
   background: rgba(0, 0, 0, 0.65);
   border-color: rgba(255,255,255,0.15);
 }
 
 /* ============================
-   TOAST BUTTON
+   TOAST
 ============================ */
 #toastContainer {
   position: fixed;
@@ -304,7 +302,6 @@ body.dark #logoBox {
   transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
-/* Dark mode support */
 body.dark .toast {
   background: rgba(255, 255, 255, 0.85);
   color: black;

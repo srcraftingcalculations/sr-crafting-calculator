@@ -1,4 +1,8 @@
 // ===============================
+// app.js - Full updated script
+// ===============================
+
+// ===============================
 // Load Recipes
 // ===============================
 async function loadRecipes() {
@@ -10,8 +14,11 @@ async function loadRecipes() {
     return await response.json();
   } catch (err) {
     console.error("Error loading recipes:", err);
-    document.getElementById("outputArea").innerHTML =
-      `<p style="color:red;">Error loading recipe data. Please try again later.</p>`;
+    const out = document.getElementById("outputArea");
+    if (out) {
+      out.innerHTML =
+        `<p style="color:red;">Error loading recipe data. Please try again later.</p>`;
+    }
     return {};
   }
 }
@@ -20,22 +27,23 @@ let RECIPES = {};
 let TIERS = {};
 
 function getTextColor(bg) {
+  if (!bg || bg[0] !== "#") return "#000000";
   const r = parseInt(bg.substr(1, 2), 16);
   const g = parseInt(bg.substr(3, 2), 16);
   const b = parseInt(bg.substr(5, 2), 16);
-  const luminance = (0.299*r + 0.587*g + 0.114*b);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b);
   return luminance > 150 ? "#000000" : "#ffffff";
 }
 
 const MACHINE_COLORS = {
-  "Smelter":      "#e67e22", // vivid orange
-  "Furnace":      "#d63031", // bright red (distinct from Smelter)
-  "Fabricator":   "#0984e3", // strong blue (more saturated than before)
-  "Mega Press":   "#6c5ce7", // bright violet (separated from Pyro Forge)
-  "Assembler":    "#00b894", // emerald green (clean, readable)
-  "Refinery":     "#e84393", // hot pink (far from Furnace/Smelter)
-  "Compounder":   "#00cec9", // aqua cyan (distinct from Fabricator blue)
-  "Pyro Forge":   "#a55eea"  // lavender purple (lighter than Mega Press)
+  "Smelter":      "#e67e22",
+  "Furnace":      "#d63031",
+  "Fabricator":   "#0984e3",
+  "Mega Press":   "#6c5ce7",
+  "Assembler":    "#00b894",
+  "Refinery":     "#e84393",
+  "Compounder":   "#00cec9",
+  "Pyro Forge":   "#a55eea"
 };
 
 const MACHINE_SPEED = {
@@ -63,7 +71,7 @@ function getRecipe(name) {
 
 function computeRailsNeeded(inputRates, railSpeed) {
   const total = Object.values(inputRates).reduce((sum, val) => sum + val, 0);
-  return Math.ceil(total / railSpeed);
+  return railSpeed && railSpeed > 0 ? Math.ceil(total / railSpeed) : "—";
 }
 
 // ===============================
@@ -109,11 +117,10 @@ function expandChain(item, targetRate) {
   function enqueue(name, rate) {
     const recipe = getRecipe(name);
 
-    // If it's RAW (no recipe), count it immediately every time
+    // RAW (no recipe)
     if (!recipe) {
       trackExtractor(name, rate);
 
-      // Add RAW node to chain if not already present
       if (!chain[name]) {
         chain[name] = {
           rate,
@@ -129,7 +136,6 @@ function expandChain(item, targetRate) {
       return;
     }
 
-    // For crafted items, accumulate and queue as before
     pending[name] = (pending[name] || 0) + rate;
     if (!processed[name]) queue.push(name);
   }
@@ -144,8 +150,12 @@ function expandChain(item, targetRate) {
 
     const rate = pending[current];
     const recipe = getRecipe(current);
+    if (!recipe) {
+      // Shouldn't happen because enqueue handles RAW, but guard anyway
+      trackExtractor(current, rate);
+      continue;
+    }
 
-    // At this point, recipe is guaranteed to exist (RAW handled in enqueue)
     const craftsPerMin = rate / recipe.output;
     const outputPerMinPerMachine = (recipe.output * 60) / recipe.time;
     const machines = Math.ceil(rate / outputPerMinPerMachine);
@@ -171,11 +181,13 @@ function expandChain(item, targetRate) {
   return { chain, machineTotals, extractorTotals };
 }
 
+// ===============================
+// Depths & Graph Data
+// ===============================
 function computeDepths(chain, rootItem) {
   const consumers = {};
   const depths = {};
 
-  // Build reverse edges: input → list of items that consume it
   for (const [item, data] of Object.entries(chain)) {
     for (const input of Object.keys(data.inputs || {})) {
       if (!consumers[input]) consumers[input] = [];
@@ -183,21 +195,16 @@ function computeDepths(chain, rootItem) {
     }
   }
 
-  // Start by putting the root far right
   depths[rootItem] = 999;
 
   let changed = true;
   while (changed) {
     changed = false;
-
     for (const item of Object.keys(chain)) {
       const cons = consumers[item];
       if (!cons || cons.length === 0) continue;
 
-      const minConsumerDepth = Math.min(
-        ...cons.map(c => depths[c] ?? 999)
-      );
-
+      const minConsumerDepth = Math.min(...cons.map(c => depths[c] ?? 999));
       const newDepth = minConsumerDepth - 1;
 
       if (depths[item] !== newDepth) {
@@ -207,17 +214,13 @@ function computeDepths(chain, rootItem) {
     }
   }
 
-  // Second pass: strictly enforce "inputs are left of outputs"
   let adjusted = true;
   while (adjusted) {
     adjusted = false;
-
     for (const [item, data] of Object.entries(chain)) {
       const itemDepth = depths[item] ?? 0;
-
       for (const input of Object.keys(data.inputs || {})) {
         const inputDepth = depths[input] ?? 0;
-
         if (inputDepth >= itemDepth) {
           depths[input] = itemDepth - 1;
           adjusted = true;
@@ -226,7 +229,6 @@ function computeDepths(chain, rootItem) {
     }
   }
 
-  // Normalize so smallest depth becomes 0
   const minDepth = Math.min(...Object.values(depths));
   for (const item of Object.keys(depths)) {
     depths[item] -= minDepth;
@@ -243,7 +245,6 @@ function buildGraphData(chain, rootItem) {
 
   for (const [item, data] of Object.entries(chain)) {
     const depth = depths[item] ?? 0;
-
     const node = {
       id: item,
       label: item,
@@ -253,7 +254,6 @@ function buildGraphData(chain, rootItem) {
       machines: data.machines,
       inputs: data.inputs
     };
-
     nodes.push(node);
     nodeMap.set(item, node);
   }
@@ -269,176 +269,8 @@ function buildGraphData(chain, rootItem) {
   return { nodes, links };
 }
 
-
 // ===============================
-// Table Rendering
-// ===============================
-function renderTable(chainObj, rootItem, rate) {
-  const { chain, machineTotals, extractorTotals } = chainObj;
-  const { nodes, links } = buildGraphData(chain, rootItem);
-  const graphSVG = renderGraph(nodes, links, rootItem);
-  document.getElementById("graphArea").innerHTML = graphSVG;
-  const railSpeed = parseInt(document.getElementById("railSelect").value);
-
-  let html = `
-    <h2>Production chain for ${rate} / min of ${rootItem}</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Item</th>
-          <th>Qty/min</th>
-          <th>Output/machine</th>
-          <th>Machines</th>
-          <th>Machine Type</th>
-          <th>Inputs</th>
-          <th>Rails Needed</th>
-        </tr>
-      </thead>
-      <tbody>
-  `;
-
-  const tierGroups = {};
-  for (const [item, data] of Object.entries(chain)) {
-    const tier = TIERS[item] ?? 0;
-    if (!tierGroups[tier]) tierGroups[tier] = [];
-    tierGroups[tier].push([item, data]);
-  }
-
-  const sortedTiers = Object.keys(tierGroups)
-    .map(Number)
-    .sort((a, b) => b - a);
-
-  for (const tier of sortedTiers) {
-    html += `<tr><td colspan="7"><strong>--- Level ${tier} ---</strong></td></tr>`;
-    const rows = tierGroups[tier].sort((a, b) => a[0].localeCompare(b[0]));
-
-    for (const [item, data] of rows) {
-      if (data.raw) continue; // ⛔ Skip RAW items
-
-      let outputPerMachine = "—";
-      let machines = "—";
-      let railsNeeded = "—";
-
-      const fillColor = MACHINE_COLORS[data.building] || "#ecf0f1";
-
-      const textColor = getTextColor(fillColor);
-
-      if (!data.raw) {
-        const recipe = getRecipe(item);
-        if (recipe) {
-          outputPerMachine = Math.ceil((recipe.output * 60) / recipe.time); // ✅ integer-safe formula
-        }
-        machines = Math.ceil(data.machines);
-        railsNeeded = computeRailsNeeded(data.inputs, railSpeed);
-      }
-
-      const inputs = Object.entries(data.inputs || {})
-        .map(([i, amt]) => `${i}: ${Math.ceil(amt)}/min`)
-        .join("<br>");
-
-      html += `
-        <tr>
-          <td>${item}</td>
-          <td>${Math.ceil(data.rate)}</td>
-          <td>${outputPerMachine}</td>
-          <td>${machines}</td>
-          <td style="background-color:${fillColor}; color:${textColor};">
-            ${data.building}
-          </td>
-          <td>${inputs || "—"}</td>
-          <td>${railsNeeded}</td>
-        </tr>
-      `;
-    }
-  }
-
-  html += `</tbody></table>`;
-
-  // ===============================
-  // MACHINES REQUIRED (total)
-  // ===============================
-  html += `
-    <h3>MACHINES REQUIRED (total)</h3>
-    <table>
-      <thead>
-        <tr><th>Machine Type</th><th>Count</th></tr>
-      </thead>
-      <tbody>
-        ${Object.entries(machineTotals)
-          .sort((a, b) => b[1] - a[1])
-          .map(([type, count]) => `
-            <tr>
-              <td>${type}</td>
-              <td>${Math.ceil(count)}</td>
-            </tr>
-          `).join("")}
-      </tbody>
-    </table>
-  `;
-
-  // ===============================
-  // EXTRACTION REQUIRED
-  // ===============================
-  html += `
-    <h3>EXTRACTION REQUIRED</h3>
-    <table>
-      <thead>
-        <tr>
-          <th>Resource</th>
-          <th>Impure</th>
-          <th>Normal</th>
-          <th>Pure</th>
-          <th>Qty/min</th>
-        </tr>
-      </thead>
-      <tbody>
-  `;
-
-  const sortedExtractors = Object.entries(extractorTotals)
-    .filter(([_, qty]) => qty > 0)
-    .sort((a, b) => b[1] - a[1]);
-
-  for (const [resource, qty] of sortedExtractors) {
-    const rounded = Math.ceil(qty);
-
-    if (SPECIAL_EXTRACTORS[resource]) {
-      const normal = Math.ceil(rounded / SPECIAL_EXTRACTORS[resource]);
-      html += `
-        <tr>
-          <td>${resource}</td>
-          <td>—</td>
-          <td>${normal}</td>
-          <td>—</td>
-          <td>${rounded}</td>
-        </tr>
-      `;
-    } else {
-      const impure = Math.ceil(rounded / 60);
-      const normal = Math.ceil(rounded / 120);
-      const pure = Math.ceil(rounded / 240);
-
-      html += `
-        <tr>
-          <td>${resource}</td>
-          <td>${impure}</td>
-          <td>${normal}</td>
-          <td>${pure}</td>
-          <td>${rounded}</td>
-        </tr>
-      `;
-    }
-  }
-
-  html += `</tbody></table>`;
-  document.getElementById("outputArea").innerHTML = html;
-}
-
-
-// ===============================
-// Graph Rendering
-// ===============================
-// ===============================
-// Graph Rendering (updated: scrollable + zoom/pan controls)
+// Graph Rendering (auto-fit, viewBox, responsive)
 // ===============================
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
@@ -472,7 +304,6 @@ function renderGraph(nodes, links, rootItem) {
   const svgWidth = Math.max(800, maxX + 200);
   const svgHeight = Math.max(300, maxY + 200);
 
-  // Build inner SVG content
   let inner = '';
 
   for (const link of links) {
@@ -524,26 +355,23 @@ function renderGraph(nodes, links, rootItem) {
     `;
   }
 
-  // Controls (zoom in/out/reset + slider)
   const controlsHtml = `
     <div class="graphControls">
       <button class="zoomBtn" data-action="zoomOut">−</button>
-      <input type="range" class="zoomSlider" min="0.25" max="2.5" step="0.05" value="1" />
+      <input type="range" class="zoomSlider" min="0.25" max="3" step="0.05" value="1" />
       <button class="zoomBtn" data-action="zoomIn">+</button>
       <button class="zoomBtn" data-action="reset">Reset</button>
     </div>
   `;
 
-  // Full SVG with a named group that will be transformed for zoom/pan
   const svg = `
     <div class="graphWrapper">
       ${controlsHtml}
       <div class="graphViewport">
         <svg xmlns="http://www.w3.org/2000/svg"
-             width="${svgWidth}" height="${svgHeight}"
+             class="graphSVG"
              viewBox="0 0 ${svgWidth} ${svgHeight}"
-             preserveAspectRatio="xMinYMid meet"
-             class="graphSVG">
+             preserveAspectRatio="xMidYMid meet">
           <g id="zoomLayer">
             ${inner}
           </g>
@@ -555,9 +383,8 @@ function renderGraph(nodes, links, rootItem) {
   return svg;
 }
 
-
 // ===============================
-// Graph Zoom / Pan Setup
+// Graph Zoom / Pan Setup (auto-fit, pinned controls, stable pan/zoom)
 // ===============================
 function setupGraphZoom(containerEl, { autoFit = true } = {}) {
   if (!containerEl) return;
@@ -568,7 +395,6 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
   const btns = containerEl.querySelectorAll('.zoomBtn');
   const controlsEl = containerEl.querySelector('.graphControls');
 
-  // Pin controls to center of viewport horizontally and near the graph vertically
   function pinControls() {
     if (!controlsEl) return;
     controlsEl.style.position = 'fixed';
@@ -595,7 +421,6 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     controlsEl.style.top = `${desiredTop}px`;
   }
 
-  // State
   let scale = 1;
   let tx = 0;
   let ty = 0;
@@ -603,7 +428,6 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
   let startX = 0;
   let startY = 0;
 
-  // Helpers
   function getViewportRect() {
     return svg.getBoundingClientRect();
   }
@@ -611,19 +435,15 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     try {
       return zoomLayer.getBBox();
     } catch (e) {
-      return { x: 0, y: 0, width: svg.viewBox.baseVal.width || svg.clientWidth, height: svg.viewBox.baseVal.height || svg.clientHeight };
+      const vb = svg.viewBox.baseVal;
+      return { x: 0, y: 0, width: vb.width || svg.clientWidth, height: vb.height || svg.clientHeight };
     }
   }
 
-  // Improved clamping:
-  // - If layer is larger than view, clamp so edges can't go fully off-screen.
-  // - If layer is smaller than view, allow panning within a reasonable range
-  //   (so user can nudge the small graph left/right) but keep it at least partially visible.
   function clampTranslation(proposedTx, proposedTy, proposedScale) {
     const bbox = getLayerBBox();
     const view = getViewportRect();
 
-    // Convert view size to SVG coordinates
     const ptTL = svg.createSVGPoint(); ptTL.x = 0; ptTL.y = 0;
     const ptBR = svg.createSVGPoint(); ptBR.x = view.width; ptBR.y = view.height;
     const svgTL = ptTL.matrixTransform(svg.getScreenCTM().inverse());
@@ -634,16 +454,14 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     const layerW = bbox.width * proposedScale;
     const layerH = bbox.height * proposedScale;
 
-    // When layer is larger than view: ensure edges remain visible
     const minTxLarge = viewW - layerW - bbox.x * proposedScale;
     const maxTxLarge = -bbox.x * proposedScale;
     const minTyLarge = viewH - layerH - bbox.y * proposedScale;
     const maxTyLarge = -bbox.y * proposedScale;
 
-    // When layer is smaller than view: allow panning but keep at least 20% of view overlap
-    const overlapFraction = 0.2; // keep at least 20% overlap
-    const allowedExtraX = Math.max( (viewW - layerW) * (1 - overlapFraction), 0 );
-    const allowedExtraY = Math.max( (viewH - layerH) * (1 - overlapFraction), 0 );
+    const overlapFraction = 0.15;
+    const allowedExtraX = Math.max((viewW - layerW) * (1 - overlapFraction), 0);
+    const allowedExtraY = Math.max((viewH - layerH) * (1 - overlapFraction), 0);
 
     let clampedTx = proposedTx;
     let clampedTy = proposedTy;
@@ -651,9 +469,7 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     if (layerW > viewW) {
       clampedTx = Math.min(maxTxLarge, Math.max(minTxLarge, proposedTx));
     } else {
-      // center baseline
       const centerTx = (viewW - layerW) / 2 - bbox.x * proposedScale;
-      // allow +/- allowedExtraX/2 around center
       const minTxSmall = centerTx - allowedExtraX / 2;
       const maxTxSmall = centerTx + allowedExtraX / 2;
       clampedTx = Math.min(maxTxSmall, Math.max(minTxSmall, proposedTx));
@@ -679,7 +495,6 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     if (slider) slider.value = scale;
   }
 
-  // Zoom around a screen point (cx, cy)
   function zoomAt(newScale, cx, cy) {
     const pt = svg.createSVGPoint();
     pt.x = cx; pt.y = cy;
@@ -698,7 +513,6 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     applyTransform();
   }
 
-  // Buttons
   btns.forEach(b => {
     b.addEventListener('click', () => {
       const action = b.dataset.action;
@@ -707,7 +521,7 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
       const centerY = rect.top + rect.height / 2;
 
       if (action === 'zoomIn') {
-        const newScale = Math.min(2.5, +(scale + 0.1).toFixed(3));
+        const newScale = Math.min(3, +(scale + 0.1).toFixed(3));
         zoomAt(newScale, centerX, centerY);
       } else if (action === 'zoomOut') {
         const newScale = Math.max(0.25, +(scale - 0.1).toFixed(3));
@@ -732,16 +546,14 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     });
   }
 
-  // Wheel zoom
   svg.addEventListener('wheel', (ev) => {
     ev.preventDefault();
     const delta = -ev.deltaY;
     const factor = delta > 0 ? 1.08 : 0.92;
-    const newScale = Math.min(2.5, Math.max(0.25, +(scale * factor).toFixed(3)));
+    const newScale = Math.min(3, Math.max(0.25, +(scale * factor).toFixed(3)));
     zoomAt(newScale, ev.clientX, ev.clientY);
   }, { passive: false });
 
-  // Pan (mouse) — left click should always pan
   svg.addEventListener('mousedown', (ev) => {
     if (ev.button !== 0) return;
     isPanning = true;
@@ -757,7 +569,6 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     startX = ev.clientX;
     startY = ev.clientY;
 
-    // convert screen delta to svg delta
     const p0 = svg.createSVGPoint(); p0.x = 0; p0.y = 0;
     const p1 = svg.createSVGPoint(); p1.x = dxScreen; p1.y = dyScreen;
     const svg0 = p0.matrixTransform(svg.getScreenCTM().inverse());
@@ -776,7 +587,6 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     svg.style.cursor = 'grab';
   });
 
-  // Touch: pinch to zoom + pan
   let lastTouchDist = null;
   let lastTouchCenter = null;
 
@@ -800,7 +610,7 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
       const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
       const center = { x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 };
       const factor = dist / lastTouchDist;
-      const newScale = Math.min(2.5, Math.max(0.25, +(scale * factor).toFixed(3)));
+      const newScale = Math.min(3, Math.max(0.25, +(scale * factor).toFixed(3)));
       zoomAt(newScale, center.x, center.y);
       lastTouchDist = dist;
       lastTouchCenter = center;
@@ -829,7 +639,6 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
 
   svg.style.cursor = 'grab';
 
-  // Auto-fit and center
   function computeAutoFit() {
     const bbox = getLayerBBox();
     const view = getViewportRect();
@@ -847,12 +656,12 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
       return;
     }
 
-    const pad = 0.9;
+    const pad = 0.92;
     const scaleX = (viewW * pad) / bbox.width;
     const scaleY = (viewH * pad) / bbox.height;
     const fitScale = Math.min(scaleX, scaleY);
 
-    scale = Math.min(2.5, Math.max(0.25, fitScale));
+    scale = Math.min(3, Math.max(0.25, fitScale));
 
     const layerW = bbox.width * scale;
     const layerH = bbox.height * scale;
@@ -863,7 +672,6 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     pinControls();
   }
 
-  // Keep pinned controls updated on scroll/resize
   const onScrollOrResize = () => updatePinnedControls();
   window.addEventListener('scroll', onScrollOrResize, { passive: true });
   window.addEventListener('resize', onScrollOrResize);
@@ -877,7 +685,6 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     pinControls();
   }
 
-  // Expose teardown so callers can remove listeners before re-render
   containerEl._teardownGraphZoom = () => {
     window.removeEventListener('scroll', onScrollOrResize);
     window.removeEventListener('resize', onScrollOrResize);
@@ -886,19 +693,28 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
 }
 
 // ===============================
-// Table Rendering (updated to initialize zoom/pan)
+// Table Rendering (injects graph + table)
 // ===============================
 function renderTable(chainObj, rootItem, rate) {
   const { chain, machineTotals, extractorTotals } = chainObj;
   const { nodes, links } = buildGraphData(chain, rootItem);
-  const graphSVG = renderGraph(nodes, links, rootItem);
+  const graphHTML = renderGraph(nodes, links, rootItem);
 
-  // Inject graph HTML and initialize zoom/pan on the wrapper
-  document.getElementById("graphArea").innerHTML = graphSVG;
-  const wrapper = document.getElementById("graphArea").querySelector(".graphWrapper");
-  setupGraphZoom(wrapper);
+  // If previous graph had listeners, teardown first
+  const graphArea = document.getElementById("graphArea");
+  if (!graphArea) return;
 
-  const railSpeed = parseInt(document.getElementById("railSelect").value);
+  // Remove previous teardown if present
+  const prevWrapper = graphArea.querySelector(".graphWrapper");
+  if (prevWrapper && prevWrapper._teardownGraphZoom) {
+    try { prevWrapper._teardownGraphZoom(); } catch (e) { /* ignore */ }
+  }
+
+  graphArea.innerHTML = graphHTML;
+  const wrapper = graphArea.querySelector(".graphWrapper");
+  setupGraphZoom(wrapper, { autoFit: true });
+
+  const railSpeed = parseInt(document.getElementById("railSelect").value) || 0;
 
   let html = `
     <h2>Production chain for ${rate} / min of ${rootItem}</h2>
@@ -933,14 +749,13 @@ function renderTable(chainObj, rootItem, rate) {
     const rows = tierGroups[tier].sort((a, b) => a[0].localeCompare(b[0]));
 
     for (const [item, data] of rows) {
-      if (data.raw) continue; // ⛔ Skip RAW items
+      if (data.raw) continue;
 
       let outputPerMachine = "—";
       let machines = "—";
       let railsNeeded = "—";
 
       const fillColor = MACHINE_COLORS[data.building] || "#ecf0f1";
-
       const textColor = getTextColor(fillColor);
 
       if (!data.raw) {
@@ -974,7 +789,7 @@ function renderTable(chainObj, rootItem, rate) {
 
   html += `</tbody></table>`;
 
-  // MACHINES REQUIRED (total)
+  // Machines required
   html += `
     <h3>MACHINES REQUIRED (total)</h3>
     <table>
@@ -994,7 +809,7 @@ function renderTable(chainObj, rootItem, rate) {
     </table>
   `;
 
-  // EXTRACTION REQUIRED
+  // Extraction required
   html += `
     <h3>EXTRACTION REQUIRED</h3>
     <table>
@@ -1046,7 +861,8 @@ function renderTable(chainObj, rootItem, rate) {
   }
 
   html += `</tbody></table>`;
-  document.getElementById("outputArea").innerHTML = html;
+  const out = document.getElementById("outputArea");
+  if (out) out.innerHTML = html;
 }
 
 // ===============================
@@ -1054,7 +870,8 @@ function renderTable(chainObj, rootItem, rate) {
 // ===============================
 function runCalculator() {
   const item = document.getElementById('itemSelect').value;
-  const rate = parseFloat(document.getElementById('rateInput').value);
+  const rateRaw = document.getElementById('rateInput').value;
+  const rate = parseFloat(rateRaw);
 
   if (!item || isNaN(rate) || rate <= 0) {
     document.getElementById("outputArea").innerHTML =
@@ -1063,10 +880,8 @@ function runCalculator() {
   }
 
   const chainObj = expandChain(item, rate);
-
   renderTable(chainObj, item, rate);
 
-  // ⭐ Update URL with shareable parameters
   const rail = document.getElementById("railSelect").value;
 
   const params = new URLSearchParams({
@@ -1110,36 +925,39 @@ async function init() {
   RECIPES = data;
   TIERS = data._tiers || {};
 
-  // Manual override: Basic Building Material is crafted from raw ores but should be Tier 0
   TIERS["Basic Building Material"] = 0;
 
   const itemSelect = document.getElementById('itemSelect');
   const rateInput = document.getElementById("rateInput");
   const railSelect = document.getElementById("railSelect");
 
-  // ⭐ Default placeholders on fresh load
-  itemSelect.innerHTML = `<option value="" disabled selected>Select Item Here</option>`;
-  railSelect.innerHTML = `
+  // Placeholders
+  if (itemSelect) itemSelect.innerHTML = `<option value="" disabled selected>Select Item Here</option>`;
+  if (railSelect) railSelect.innerHTML = `
     <option value="" disabled selected>Select Rail</option>
     <option value="120">v1 (120/min)</option>
     <option value="240">v2 (240/min)</option>
     <option value="480">v3 (480/min)</option>
   `;
-  rateInput.value = "";
-  rateInput.dataset.manual = ""; // track manual override
+  if (rateInput) {
+    rateInput.value = "";
+    rateInput.dataset.manual = "";
+    rateInput.placeholder = "Rate (/min)";
+  }
 
-  // ⭐ Populate item dropdown
-  Object.keys(RECIPES)
-    .filter(k => k !== "_tiers")
-    .sort()
-    .forEach(item => {
-      const option = document.createElement('option');
-      option.value = item;
-      option.textContent = item;
-      itemSelect.appendChild(option);
-    });
+  // Populate items
+  if (itemSelect) {
+    Object.keys(RECIPES)
+      .filter(k => k !== "_tiers")
+      .sort()
+      .forEach(item => {
+        const option = document.createElement('option');
+        option.value = item;
+        option.textContent = item;
+        itemSelect.appendChild(option);
+      });
+  }
 
-  // Helper to compute natural per-minute for currently selected item
   function getNaturalPerMinForSelected() {
     const slug = itemSelect.value;
     const recipe = RECIPES[slug];
@@ -1147,57 +965,56 @@ async function init() {
     return Math.round((recipe.output / recipe.time) * 60);
   }
 
-  // ⭐ Auto-fill natural rate when item is selected
-  itemSelect.addEventListener("change", () => {
-    const naturalPerMin = getNaturalPerMinForSelected();
-
-    // If user hasn't manually overridden, set the natural rate (or blank for RAW)
-    if (!rateInput.dataset.manual) {
-      rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
-    }
-  });
-
-  // ⭐ Rate input behavior: manual override vs auto-default on empty/zero
-  rateInput.addEventListener("input", () => {
-    const rawVal = rateInput.value;
-    const numeric = Number(rawVal);
-
-    // If user cleared the field or set it to 0, revert to natural per-minute for the selected item
-    if (rawVal === "" || (!isNaN(numeric) && numeric === 0)) {
-      rateInput.dataset.manual = ""; // treat as not manually locked
+  // Auto-fill natural rate on item change
+  if (itemSelect && rateInput) {
+    itemSelect.addEventListener("change", () => {
       const naturalPerMin = getNaturalPerMinForSelected();
-      if (naturalPerMin !== null) {
-        rateInput.value = naturalPerMin;
-      } else {
-        rateInput.value = "";
+      if (!rateInput.dataset.manual) {
+        rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
       }
-      return;
-    }
+    });
+  }
 
-    // Otherwise treat as a manual override
-    rateInput.dataset.manual = "true";
-  });
+  // Rate input behavior: manual override vs auto-default on empty/zero
+  if (rateInput && itemSelect) {
+    rateInput.addEventListener("input", () => {
+      const rawVal = rateInput.value;
+      const numeric = Number(rawVal);
 
-  // ⭐ Auto-load shared calculation if URL contains parameters
+      if (rawVal === "" || (!isNaN(numeric) && numeric === 0)) {
+        rateInput.dataset.manual = "";
+        const naturalPerMin = getNaturalPerMinForSelected();
+        if (naturalPerMin !== null) {
+          rateInput.value = naturalPerMin;
+        } else {
+          rateInput.value = "";
+        }
+        return;
+      }
+
+      rateInput.dataset.manual = "true";
+    });
+  }
+
+  // Auto-load shared calculation if URL contains parameters
   const params = new URLSearchParams(window.location.search);
 
   const sharedItem = params.get("item");
   const sharedRate = params.get("rate");
   const sharedRail = params.get("rail");
 
-  if (sharedItem) itemSelect.value = sharedItem;
-  if (sharedRate) {
+  if (sharedItem && itemSelect) itemSelect.value = sharedItem;
+  if (sharedRate && rateInput) {
     rateInput.value = sharedRate;
-    rateInput.dataset.manual = "true"; // user-defined
+    rateInput.dataset.manual = "true";
   }
-  if (sharedRail) railSelect.value = sharedRail;
+  if (sharedRail && railSelect) railSelect.value = sharedRail;
 
-  // If item + rate exist, auto-run the calculator
   if (sharedItem && sharedRate) {
     runCalculator();
   }
 
-  // ⭐ Calculate button
+  // Calculate button
   const calcButton = document.getElementById("calcButton");
   if (calcButton) {
     calcButton.addEventListener("click", () => {
@@ -1212,24 +1029,25 @@ async function init() {
     });
   }
 
-  // ⭐ Clear State button
-  document.getElementById("clearStateBtn").addEventListener("click", () => {
-    const base = window.location.origin;
+  // Clear State button
+  const clearBtn = document.getElementById("clearStateBtn");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      const base = window.location.origin;
 
-    // Reset manual override
-    rateInput.dataset.manual = "";
+      // Reset manual override
+      if (rateInput) rateInput.dataset.manual = "";
 
-    // Local dev
-    if (base.includes("localhost")) {
-      window.location.href = "http://localhost:8000";
-      return;
-    }
+      if (base.includes("localhost")) {
+        window.location.href = "http://localhost:8000";
+        return;
+      }
 
-    // Production
-    window.location.href = "https://srcraftingcalculations.github.io/sr-crafting-calculator/";
-  });
+      window.location.href = "https://srcraftingcalculations.github.io/sr-crafting-calculator/";
+    });
+  }
 
-  // ⭐ Share button
+  // Share button
   const shareButton = document.getElementById("shareButton");
   if (shareButton) {
     shareButton.addEventListener("click", () => {
