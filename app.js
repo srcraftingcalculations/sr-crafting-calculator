@@ -334,11 +334,11 @@ function buildGraphData(chain, rootItem) {
 })();
 
 /* ===============================
-   renderGraph (only far-left raw -> Smelter wires)
-   - Draws node->node wires only when:
-     rawSource.raw && rawSource.depth === minDepth && consumer.building === 'Smelter'
-   - Hides helper dots for leftmost raw nodes
-   - Does NOT draw any other edges
+   renderGraph (BBM special case)
+   - Forces "Basic Building Material" node to depth 0 (leftmost column)
+   - Treats BBM like a smelter: hides its left anchor, shows only right helper dot
+   - Draws direct node->node wires only for far-left raw sources to Smelters OR to BBM
+   - Columns sorted alphabetically top->bottom
    =============================== */
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
@@ -346,24 +346,28 @@ function renderGraph(nodes, links, rootItem) {
   const anchorHitRadius = 12;
   const isDark = isDarkMode();
 
-  // Group nodes by depth
+  // Ensure BBM is always in the leftmost column (depth 0)
+  const BBM_ID = 'Basic Building Material';
+  const bbmNode = nodes.find(n => n.id === BBM_ID || n.label === BBM_ID);
+  if (bbmNode) bbmNode.depth = 0;
+
+  // Group nodes by depth (after forcing BBM depth)
   const columns = {};
   for (const node of nodes) {
     if (!columns[node.depth]) columns[node.depth] = [];
     columns[node.depth].push(node);
   }
 
-  // Layout nodes (left -> right: depth -> x, index -> y)
-for (const [depth, colNodes] of Object.entries(columns)) {
-  // Sort alphabetically by label (A -> Z) top to bottom
-  colNodes.sort((a, b) => (String(a.label || a.id)).localeCompare(String(b.label || b.id), undefined, { sensitivity: 'base' }));
-  colNodes.forEach((node, i) => {
-    node.x = Number(depth) * GRAPH_COL_WIDTH + 100;
-    node.y = i * GRAPH_ROW_HEIGHT + 100;
-  });
-}
+  // Layout nodes: alphabetical top -> bottom in each column
+  for (const [depth, colNodes] of Object.entries(columns)) {
+    colNodes.sort((a, b) => (String(a.label || a.id)).localeCompare(String(b.label || b.id), undefined, { sensitivity: 'base' }));
+    colNodes.forEach((node, i) => {
+      node.x = Number(depth) * GRAPH_COL_WIDTH + 100;
+      node.y = i * GRAPH_ROW_HEIGHT + 100;
+    });
+  }
 
-  // Bounds
+  // Compute bounds
   const xs = nodes.map(n => n.x);
   const ys = nodes.map(n => n.y);
   const minX = nodes.length ? Math.min(...xs) : 0;
@@ -376,6 +380,7 @@ for (const [depth, colNodes] of Object.entries(columns)) {
   const contentW = (maxX - minX) + (nodeRadius * 2) + GRAPH_CONTENT_PAD * 2;
   const contentH = (maxY - minY) + (nodeRadius * 2) + GRAPH_CONTENT_PAD * 2;
 
+  // Build inner SVG
   let inner = '';
 
   // Spine placeholders
@@ -394,19 +399,20 @@ for (const [depth, colNodes] of Object.entries(columns)) {
     `;
   }
 
-  // Leftmost depth
+  // Determine leftmost depth (minDepth) after forcing BBM
   const minDepth = nodes.length ? Math.min(...nodes.map(n => n.depth)) : 0;
 
-  // Draw only raw->Smelter wires for leftmost raw sources
+  // --- Edges: draw direct node-to-node wires only for far-left raw sources to Smelters OR to BBM ---
   for (const link of links) {
-    // links are consumer -> input
+    // links are consumer -> input (consumer consumes input)
     const rawSource = nodes.find(n => n.id === link.to);
     const consumer = nodes.find(n => n.id === link.from);
     if (!rawSource || !consumer) continue;
 
-    // Condition: source is raw, on leftmost column, and consumer is a Smelter
-    if (rawSource.raw && rawSource.depth === minDepth && consumer.building === 'Smelter') {
-      const startX = rawSource.x; // center of raw node
+    // Condition: source is raw, on leftmost column, and consumer is Smelter OR consumer is BBM
+    const consumerIsBBM = (consumer.id === BBM_ID || consumer.label === BBM_ID);
+    if (rawSource.raw && rawSource.depth === minDepth && (consumer.building === 'Smelter' || consumerIsBBM)) {
+      const startX = rawSource.x; // start at raw center
       const startY = rawSource.y;
       const endX = consumer.hasInputAnchor ? (consumer.x - nodeRadius - 10) : consumer.x;
       const endY = consumer.y;
@@ -420,14 +426,22 @@ for (const [depth, colNodes] of Object.entries(columns)) {
     }
   }
 
-  // Nodes + anchors (hide anchors for leftmost raw nodes)
+  // Nodes + anchors
   for (const node of nodes) {
     const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
     const strokeColor = "#2c3e50";
     const textColor = getTextColor(fillColor);
     const labelY = node.y - GRAPH_LABEL_OFFSET;
 
+    // Hide helper dots for leftmost raw nodes
     const hideAllAnchors = (node.raw && node.depth === minDepth);
+
+    // Special BBM anchor rule: BBM behaves like a smelter ore target:
+    // - hide its left anchor (no helper dot on left)
+    // - always show its right output helper dot
+    const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
+    const showLeftAnchor = !hideAllAnchors && node.hasInputAnchor && !isBBM;
+    const showRightAnchor = !hideAllAnchors && (node.hasOutputAnchor || isBBM);
 
     inner += `
       <g class="graph-node" data-id="${escapeHtml(node.id)}" tabindex="0" role="button" aria-label="${escapeHtml(node.label)}" style="outline:none;">
@@ -449,7 +463,8 @@ for (const [depth, colNodes] of Object.entries(columns)) {
         </text>
     `;
 
-    if (!hideAllAnchors && node.hasInputAnchor) {
+    // Left input anchor (render only if allowed and not BBM)
+    if (showLeftAnchor) {
       const ax = node.x - nodeRadius - 10;
       const ay = node.y;
       inner += `
@@ -460,7 +475,8 @@ for (const [depth, colNodes] of Object.entries(columns)) {
       `;
     }
 
-    if (!hideAllAnchors && node.hasOutputAnchor) {
+    // Right output anchor (render if allowed or if BBM)
+    if (showRightAnchor) {
       const bx = node.x + nodeRadius + 10;
       const by = node.y;
       inner += `
@@ -479,7 +495,7 @@ for (const [depth, colNodes] of Object.entries(columns)) {
   const viewBoxW = Math.ceil(contentW);
   const viewBoxH = Math.ceil(contentH);
 
-  return `
+  const svg = `
     <div class="graphWrapper" data-vb="${viewBoxX},${viewBoxY},${viewBoxW},${viewBoxH}">
       <div class="graphViewport">
         <svg xmlns="http://www.w3.org/2000/svg"
@@ -493,6 +509,7 @@ for (const [depth, colNodes] of Object.entries(columns)) {
       </div>
     </div>
   `;
+  return svg;
 }
 
 /* ===============================
