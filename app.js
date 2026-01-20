@@ -437,6 +437,9 @@ function renderTable(chainObj, rootItem, rate) {
 // ===============================
 // Graph Rendering
 // ===============================
+// ===============================
+// Graph Rendering (updated: scrollable + zoom/pan controls)
+// ===============================
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
   const isDark = document.body.classList.contains("dark-mode");
@@ -463,22 +466,21 @@ function renderGraph(nodes, links, rootItem) {
     });
   }
 
-  // Compute dynamic SVG size based on node positions
   const maxX = nodes.length ? Math.max(...nodes.map(n => n.x)) : 0;
   const maxY = nodes.length ? Math.max(...nodes.map(n => n.y)) : 0;
 
-  const svgWidth = Math.max(800, maxX + 200);   // ensure a sensible minimum width
-  const svgHeight = Math.max(300, maxY + 200);  // ensure a sensible minimum height
+  const svgWidth = Math.max(800, maxX + 200);
+  const svgHeight = Math.max(300, maxY + 200);
 
-  // Build SVG content (same as before)
-  let svgContent = '';
+  // Build inner SVG content
+  let inner = '';
 
   for (const link of links) {
     const from = nodes.find(n => n.id === link.from);
     const to = nodes.find(n => n.id === link.to);
     if (!from || !to) continue;
 
-    svgContent += `
+    inner += `
       <line x1="${from.x}" y1="${from.y}"
             x2="${to.x}" y2="${to.y}"
             stroke="#999" stroke-width="2" />
@@ -493,7 +495,7 @@ function renderGraph(nodes, links, rootItem) {
     const strokeColor = "#2c3e50";
     const textColor = getTextColor(fillColor);
 
-    svgContent += `
+    inner += `
       <g>
         <text x="${node.x}" y="${node.y - 30}"
               text-anchor="middle" font-size="12" font-weight="600"
@@ -522,20 +524,335 @@ function renderGraph(nodes, links, rootItem) {
     `;
   }
 
-  // Wrap SVG in a scrollable container. Use viewBox so it can scale if needed,
-  // but keep the SVG's intrinsic width so horizontal scrolling works.
-  const wrapper = `
-    <div class="graphWrapper">
-      <svg xmlns="http://www.w3.org/2000/svg"
-           width="${svgWidth}" height="${svgHeight}"
-           viewBox="0 0 ${svgWidth} ${svgHeight}"
-           preserveAspectRatio="xMinYMid meet">
-        ${svgContent}
-      </svg>
+  // Controls (zoom in/out/reset + slider)
+  const controlsHtml = `
+    <div class="graphControls">
+      <button class="zoomBtn" data-action="zoomOut">−</button>
+      <input type="range" class="zoomSlider" min="0.25" max="2.5" step="0.05" value="1" />
+      <button class="zoomBtn" data-action="zoomIn">+</button>
+      <button class="zoomBtn" data-action="reset">Reset</button>
     </div>
   `;
 
-  return wrapper;
+  // Full SVG with a named group that will be transformed for zoom/pan
+  const svg = `
+    <div class="graphWrapper">
+      ${controlsHtml}
+      <div class="graphViewport">
+        <svg xmlns="http://www.w3.org/2000/svg"
+             width="${svgWidth}" height="${svgHeight}"
+             viewBox="0 0 ${svgWidth} ${svgHeight}"
+             preserveAspectRatio="xMinYMid meet"
+             class="graphSVG">
+          <g id="zoomLayer">
+            ${inner}
+          </g>
+        </svg>
+      </div>
+    </div>
+  `;
+
+  return svg;
+}
+
+
+// ===============================
+// Graph Zoom / Pan Setup
+// ===============================
+function setupGraphZoom(containerEl) {
+  if (!containerEl) return;
+
+  const svg = containerEl.querySelector('svg.graphSVG');
+  const zoomLayer = svg.querySelector('#zoomLayer');
+  const slider = containerEl.querySelector('.zoomSlider');
+  const btns = containerEl.querySelectorAll('.zoomBtn');
+
+  // State
+  let scale = 1;
+  let tx = 0;
+  let ty = 0;
+  let isPanning = false;
+  let startX = 0;
+  let startY = 0;
+
+  // Apply transform
+  function applyTransform() {
+    zoomLayer.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+    if (slider) slider.value = scale;
+  }
+
+  // Zoom around a point (svg coordinates)
+  function zoomAt(factor, cx, cy) {
+    // Convert screen coords to svg coords
+    const pt = svg.createSVGPoint();
+    pt.x = cx; pt.y = cy;
+    const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+    // Adjust translate so the point stays under the cursor
+    tx = svgP.x - factor * (svgP.x - tx);
+    ty = svgP.y - factor * (svgP.y - ty);
+
+    scale = factor;
+    applyTransform();
+  }
+
+  // Buttons
+  btns.forEach(b => {
+    b.addEventListener('click', () => {
+      const action = b.dataset.action;
+      if (action === 'zoomIn') {
+        const newScale = Math.min(2.5, +(scale + 0.1).toFixed(3));
+        const rect = svg.getBoundingClientRect();
+        zoomAt(newScale, rect.left + rect.width / 2, rect.top + rect.height / 2);
+      } else if (action === 'zoomOut') {
+        const newScale = Math.max(0.25, +(scale - 0.1).toFixed(3));
+        const rect = svg.getBoundingClientRect();
+        zoomAt(newScale, rect.left + rect.width / 2, rect.top + rect.height / 2);
+      } else if (action === 'reset') {
+        scale = 1; tx = 0; ty = 0; applyTransform();
+      }
+    });
+  });
+
+  // Slider
+  if (slider) {
+    slider.addEventListener('input', () => {
+      const newScale = parseFloat(slider.value);
+      const rect = svg.getBoundingClientRect();
+      zoomAt(newScale, rect.left + rect.width / 2, rect.top + rect.height / 2);
+    });
+  }
+
+  // Wheel zoom
+  svg.addEventListener('wheel', (ev) => {
+    ev.preventDefault();
+    const delta = -ev.deltaY;
+    const factor = delta > 0 ? 1.08 : 0.92;
+    const newScale = Math.min(2.5, Math.max(0.25, +(scale * factor).toFixed(3)));
+    zoomAt(newScale, ev.clientX, ev.clientY);
+  }, { passive: false });
+
+  // Pan (mouse)
+  svg.addEventListener('mousedown', (ev) => {
+    isPanning = true;
+    startX = ev.clientX;
+    startY = ev.clientY;
+    svg.style.cursor = 'grabbing';
+  });
+
+  window.addEventListener('mousemove', (ev) => {
+    if (!isPanning) return;
+    const dx = (ev.clientX - startX) / scale;
+    const dy = (ev.clientY - startY) / scale;
+    startX = ev.clientX;
+    startY = ev.clientY;
+    tx += dx;
+    ty += dy;
+    applyTransform();
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!isPanning) return;
+    isPanning = false;
+    svg.style.cursor = 'grab';
+  });
+
+  // Touch: pinch to zoom + pan (basic)
+  let lastTouchDist = null;
+
+  svg.addEventListener('touchstart', (ev) => {
+    if (ev.touches.length === 2) {
+      ev.preventDefault();
+      const t0 = ev.touches[0], t1 = ev.touches[1];
+      lastTouchDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+    }
+  }, { passive: false });
+
+  svg.addEventListener('touchmove', (ev) => {
+    if (ev.touches.length === 2 && lastTouchDist !== null) {
+      ev.preventDefault();
+      const t0 = ev.touches[0], t1 = ev.touches[1];
+      const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+      const center = { x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 };
+      const factor = dist / lastTouchDist;
+      const newScale = Math.min(2.5, Math.max(0.25, +(scale * factor).toFixed(3)));
+      zoomAt(newScale, center.x, center.y);
+      lastTouchDist = dist;
+    }
+  }, { passive: false });
+
+  svg.addEventListener('touchend', () => {
+    lastTouchDist = null;
+  });
+
+  // initial cursor
+  svg.style.cursor = 'grab';
+  applyTransform();
+}
+
+
+// ===============================
+// Table Rendering (updated to initialize zoom/pan)
+// ===============================
+function renderTable(chainObj, rootItem, rate) {
+  const { chain, machineTotals, extractorTotals } = chainObj;
+  const { nodes, links } = buildGraphData(chain, rootItem);
+  const graphSVG = renderGraph(nodes, links, rootItem);
+
+  // Inject graph HTML and initialize zoom/pan on the wrapper
+  document.getElementById("graphArea").innerHTML = graphSVG;
+  const wrapper = document.getElementById("graphArea").querySelector(".graphWrapper");
+  setupGraphZoom(wrapper);
+
+  const railSpeed = parseInt(document.getElementById("railSelect").value);
+
+  let html = `
+    <h2>Production chain for ${rate} / min of ${rootItem}</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Qty/min</th>
+          <th>Output/machine</th>
+          <th>Machines</th>
+          <th>Machine Type</th>
+          <th>Inputs</th>
+          <th>Rails Needed</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  const tierGroups = {};
+  for (const [item, data] of Object.entries(chain)) {
+    const tier = TIERS[item] ?? 0;
+    if (!tierGroups[tier]) tierGroups[tier] = [];
+    tierGroups[tier].push([item, data]);
+  }
+
+  const sortedTiers = Object.keys(tierGroups)
+    .map(Number)
+    .sort((a, b) => b - a);
+
+  for (const tier of sortedTiers) {
+    html += `<tr><td colspan="7"><strong>--- Level ${tier} ---</strong></td></tr>`;
+    const rows = tierGroups[tier].sort((a, b) => a[0].localeCompare(b[0]));
+
+    for (const [item, data] of rows) {
+      if (data.raw) continue; // ⛔ Skip RAW items
+
+      let outputPerMachine = "—";
+      let machines = "—";
+      let railsNeeded = "—";
+
+      const fillColor = MACHINE_COLORS[data.building] || "#ecf0f1";
+
+      const textColor = getTextColor(fillColor);
+
+      if (!data.raw) {
+        const recipe = getRecipe(item);
+        if (recipe) {
+          outputPerMachine = Math.ceil((recipe.output * 60) / recipe.time);
+        }
+        machines = Math.ceil(data.machines);
+        railsNeeded = computeRailsNeeded(data.inputs, railSpeed);
+      }
+
+      const inputs = Object.entries(data.inputs || {})
+        .map(([i, amt]) => `${i}: ${Math.ceil(amt)}/min`)
+        .join("<br>");
+
+      html += `
+        <tr>
+          <td>${item}</td>
+          <td>${Math.ceil(data.rate)}</td>
+          <td>${outputPerMachine}</td>
+          <td>${machines}</td>
+          <td style="background-color:${fillColor}; color:${textColor};">
+            ${data.building}
+          </td>
+          <td>${inputs || "—"}</td>
+          <td>${railsNeeded}</td>
+        </tr>
+      `;
+    }
+  }
+
+  html += `</tbody></table>`;
+
+  // MACHINES REQUIRED (total)
+  html += `
+    <h3>MACHINES REQUIRED (total)</h3>
+    <table>
+      <thead>
+        <tr><th>Machine Type</th><th>Count</th></tr>
+      </thead>
+      <tbody>
+        ${Object.entries(machineTotals)
+          .sort((a, b) => b[1] - a[1])
+          .map(([type, count]) => `
+            <tr>
+              <td>${type}</td>
+              <td>${Math.ceil(count)}</td>
+            </tr>
+          `).join("")}
+      </tbody>
+    </table>
+  `;
+
+  // EXTRACTION REQUIRED
+  html += `
+    <h3>EXTRACTION REQUIRED</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Resource</th>
+          <th>Impure</th>
+          <th>Normal</th>
+          <th>Pure</th>
+          <th>Qty/min</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  const sortedExtractors = Object.entries(extractorTotals)
+    .filter(([_, qty]) => qty > 0)
+    .sort((a, b) => b[1] - a[1]);
+
+  for (const [resource, qty] of sortedExtractors) {
+    const rounded = Math.ceil(qty);
+
+    if (SPECIAL_EXTRACTORS[resource]) {
+      const normal = Math.ceil(rounded / SPECIAL_EXTRACTORS[resource]);
+      html += `
+        <tr>
+          <td>${resource}</td>
+          <td>—</td>
+          <td>${normal}</td>
+          <td>—</td>
+          <td>${rounded}</td>
+        </tr>
+      `;
+    } else {
+      const impure = Math.ceil(rounded / 60);
+      const normal = Math.ceil(rounded / 120);
+      const pure = Math.ceil(rounded / 240);
+
+      html += `
+        <tr>
+          <td>${resource}</td>
+          <td>${impure}</td>
+          <td>${normal}</td>
+          <td>${pure}</td>
+          <td>${rounded}</td>
+        </tr>
+      `;
+    }
+  }
+
+  html += `</tbody></table>`;
+  document.getElementById("outputArea").innerHTML = html;
 }
 
 // ===============================
