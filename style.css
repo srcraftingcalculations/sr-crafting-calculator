@@ -1,17 +1,21 @@
 /* ============================
+   Full stylesheet (numbers centered)
+   ============================ */
+
+/* ============================
    Base Layout
-============================ */
+   ============================ */
 body {
-  font-family: Arial, sans-serif;
+  font-family: Arial, Helvetica, sans-serif;
   margin: 20px;
   background: #f5f5f5;
   color: #222;
-  transition: background 0.3s, color 0.3s;
+  transition: background 0.25s ease, color 0.25s ease;
 }
 
 /* ============================
-   Header with responsive banner
-============================ */
+   Header / Banner
+   ============================ */
 header {
   position: relative;
   overflow: hidden;
@@ -22,27 +26,24 @@ header {
   background-size: cover;
   background-repeat: no-repeat;
   background-color: #1a0a05;
-  box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.6);
+  box-shadow: inset 0 0 80px rgba(0,0,0,0.6);
 }
 
 #headerBanner { display: none; }
 
-header > *:not(#headerBanner) {
-  position: absolute;
-  z-index: 2;
-}
+header > *:not(#headerBanner) { position: absolute; z-index: 2; }
 
 #logoBox {
   top: 50%;
   left: 20px;
   transform: translateY(-50%);
-  background: rgba(0, 0, 0, 0.65);
+  background: rgba(0,0,0,0.65);
   padding: 8px 12px;
   border-radius: 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255,255,255,0.12);
   backdrop-filter: blur(4px);
 }
 
@@ -54,7 +55,6 @@ header > *:not(#headerBanner) {
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
-
 #titleBox img { height: 70px; object-fit: contain; }
 
 #darkModeToggle {
@@ -64,12 +64,12 @@ header > *:not(#headerBanner) {
   padding: 8px 16px;
   cursor: pointer;
   border: 1px solid #444;
-  background: rgba(221, 221, 221, 0.9);
+  background: rgba(221,221,221,0.9);
   border-radius: 4px;
-  font-weight: bold;
-  transition: all 0.3s ease;
+  font-weight: 700;
+  transition: all 0.2s ease;
 }
-#darkModeToggle:hover { background: #ffffff; transform: translateY(-50%) scale(1.05); }
+#darkModeToggle:hover { transform: translateY(-50%) scale(1.03); background: #fff; }
 
 @media (max-width: 480px) {
   #logoBox { left: 10px; padding: 4px; }
@@ -78,49 +78,51 @@ header > *:not(#headerBanner) {
 }
 
 /* ============================
-   Controls and table container
-============================ */
+   Controls / Table container
+   ============================ */
 #controls {
   margin: 20px 0;
   display: flex;
   gap: 10px;
   align-items: center;
 }
+#controls { display: inline-block; text-align: left; margin-bottom: 20px; }
+
 button {
   padding: 6px 12px;
   cursor: pointer;
   border: 1px solid #444;
-  background: #ddd;
-  transition: background 0.3s;
+  background: #e6e6e6;
+  transition: background 0.15s ease;
 }
-button:hover { background: #ccc; }
-
-#tableContainer { text-align: center; }
-#controls { display: inline-block; text-align: left; margin-bottom: 20px; }
+button:hover { background: #dcdcdc; }
 
 /* ============================
    Table styling
-============================ */
+   ============================ */
+#tableContainer { text-align: center; }
+
 table {
   width: 100%;
   border-collapse: collapse;
-  background: white;
+  background: #fff;
   color: #222;
   margin-top: 20px;
 }
 table th {
   background: #2f4f4f;
-  color: white;
+  color: #fff;
   padding: 8px;
+  text-align: left;
 }
 table td {
-  padding: 8px 12px; /* slightly more padding for readability */
-  border: 1px solid #ccc;
+  padding: 8px 12px;
+  border: 1px solid #d0d0d0;
 }
 
 /* ============================
    Reset button (below tables, above graph)
-============================ */
+   ============================ */
 .graphResetButton {
   display: flex;
   justify-content: center;
@@ -137,35 +139,29 @@ table td {
 .graphResetButton button:hover { filter: brightness(0.98); }
 
 /* ============================
-   Graph area
-============================ */
+   Graph area + wrapper
+   ============================ */
 #graphArea { margin-top: 8px; }
 #graphArea svg text { fill: #333; }
 
-/* ============================
-   Graph wrapper: auto-fit + pan/zoom
-   (no slider; panning via transform)
-   - reserves vertical space for reset button above graph
-   - uses padded viewBox so panning doesn't clip nodes
-============================ */
 .graphWrapper {
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
   max-height: calc(100vh - 220px);
-  overflow: hidden; /* panning via transform, no scrollbars initially */
+  overflow: hidden; /* panning via transform */
   padding: 8px;
-  padding-top: 12px; /* small top padding; reset button sits in document flow */
+  padding-top: 12px;
   border-radius: 6px;
   background: rgba(255,255,255,0.02);
 }
 
-/* Ensure SVG fills wrapper and respects viewBox */
 .graphWrapper .graphViewport {
   width: 100%;
   height: 100%;
   display: block;
 }
+
 .graphWrapper svg.graphSVG {
   width: 100%;
   height: auto;
@@ -176,72 +172,81 @@ table td {
 }
 
 /* ============================
-   SVG text spacing and readability
-   (increased spacing between labels, numbers, and nodes)
-============================ */
-/* SVG text centering helpers */
-.graphSVG text.nodeNumber {
-  font-size: 13px;
-  font-weight: 700;
-  text-anchor: middle;
-  /* alignment-baseline and dominant-baseline help some browsers; dy=".35em" does the visual centering */
-  alignment-baseline: central;
-  dominant-baseline: central;
-  paint-order: stroke;
-  stroke-linejoin: round;
-}
+   SVG text & node styling (center numbers)
+   ============================ */
 
-/* keep label styling consistent */
+/* Ensure labels are readable and spaced */
 .graphSVG text.nodeLabel {
+  font-family: "Segoe UI", Roboto, Arial, sans-serif;
   font-size: 13px;
   font-weight: 700;
+  letter-spacing: 0.2px;
   text-anchor: middle;
   paint-order: stroke;
-  stroke-linejoin: round;
-}
-
-/* reduce stroke width for text so stroke doesn't push glyphs off visually */
-.graphSVG text {
   stroke-width: 0.6px;
-  paint-order: stroke;
+  stroke-linejoin: round;
+  fill: currentColor;
 }
 
-/* Node rect adjustments (if present) */
+/* Numbers inside nodes: center precisely */
+.graphSVG text.nodeNumber {
+  font-family: "Segoe UI", Roboto, Arial, sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  text-anchor: middle;               /* horizontal centering */
+  /* vertical centering helpers */
+  dominant-baseline: central;        /* primary baseline alignment */
+  alignment-baseline: central;       /* fallback for some engines */
+  paint-order: stroke;
+  stroke-width: 0.6px;
+  stroke-linejoin: round;
+  fill: currentColor;
+  /* small transform nudge to compensate for stroke/font metrics differences */
+  transform-origin: center;
+  transform-box: fill-box;
+  transform: translateY(0.12em);     /* tweak this if needed (.12em is subtle) */
+}
+
+/* If your SVG uses <tspan> for multi-line labels, ensure baseline alignment */
+.graphSVG text tspan { dominant-baseline: central; }
+
+/* Circle and rect visuals */
+.graphSVG circle {
+  vector-effect: non-scaling-stroke;
+}
 .graphSVG rect {
   rx: 4;
   ry: 4;
+  vector-effect: non-scaling-stroke;
 }
+
+/* Reduce stroke impact on glyph metrics by keeping stroke small */
+.graphSVG text { stroke-width: 0.6px; paint-order: stroke; }
 
 /* Cursor styles for panning */
 .graphSVG { cursor: grab; display: block; }
 .graphSVG:active { cursor: grabbing; }
 
-/* Optional: nicer scrollbars if ever enabled */
+/* Optional: nicer scrollbars if enabled */
 .graphWrapper::-webkit-scrollbar { height: 10px; width: 10px; }
-.graphWrapper::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 6px; }
+.graphWrapper::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 6px; }
 
 /* ============================
    Dark mode
-============================ */
+   ============================ */
 body.dark {
-  background: #1e1e1e;
+  background: #121212;
   color: #ddd;
 }
-body.dark button {
-  background: #444;
-  color: #eee;
-  border-color: #666;
-}
-body.dark button:hover { background: #555; }
-body.dark table { background: #2a2a2a; color: #ddd; }
-body.dark table th { background: #444; color: #fff; }
-body.dark table td { border: 1px solid #555; }
+body.dark button { background: #333; color: #eee; border-color: #555; }
+body.dark table { background: #1f1f1f; color: #ddd; }
+body.dark table th { background: #2b2b2b; color: #fff; }
+body.dark table td { border: 1px solid #333; }
 body.dark #graphArea svg text { fill: #ddd; }
-body.dark #logoBox { background: rgba(0, 0, 0, 0.65); border-color: rgba(255,255,255,0.15); }
 
 /* ============================
-   Toast
-============================ */
+   Toasts & misc
+   ============================ */
 #toastContainer {
   position: fixed;
   bottom: 20px;
@@ -257,18 +262,15 @@ body.dark #logoBox { background: rgba(0, 0, 0, 0.65); border-color: rgba(255,255
   font-size: 14px;
   font-weight: 600;
   color: white;
-  background: rgba(0, 0, 0, 0.85);
+  background: rgba(0,0,0,0.85);
   opacity: 0;
   transform: translateY(20px);
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transition: opacity 0.25s ease, transform 0.25s ease;
 }
-body.dark .toast { background: rgba(255, 255, 255, 0.85); color: black; }
 .toast.show { opacity: 1; transform: translateY(0); }
 
-/* ============================
-   Accessibility & small tweaks
-============================ */
-.graphResetButton button:focus { outline: 2px solid rgba(0, 120, 215, 0.6); outline-offset: 2px; }
+/* Accessibility */
+.graphResetButton button:focus { outline: 2px solid rgba(0,120,215,0.6); outline-offset: 2px; }
 
 /* Reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
