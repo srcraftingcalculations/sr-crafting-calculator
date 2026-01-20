@@ -586,7 +586,6 @@ function setupDarkMode() {
   });
 }
 
-
 // ===============================
 // Initialization
 // ===============================
@@ -601,17 +600,54 @@ async function init() {
   TIERS["Basic Building Material"] = 0;
 
   const itemSelect = document.getElementById('itemSelect');
-  if (itemSelect) {
-    Object.keys(RECIPES)
-      .filter(k => k !== "_tiers")
-      .sort()
-      .forEach(item => {
-        const option = document.createElement('option');
-        option.value = item;
-        option.textContent = item;
-        itemSelect.appendChild(option);
-      });
-  }
+  const rateInput = document.getElementById("rateInput");
+  const railSelect = document.getElementById("railSelect");
+
+  // ⭐ Default placeholders on fresh load
+  itemSelect.innerHTML = `<option value="" disabled selected>Select Item</option>`;
+  railSelect.innerHTML = `
+    <option value="" disabled selected>Select Rail</option>
+    <option value="120">v1 (120/min)</option>
+    <option value="240">v2 (240/min)</option>
+    <option value="480">v3 (480/min)</option>
+  `;
+  rateInput.value = "";
+  rateInput.dataset.manual = ""; // track manual override
+
+  // ⭐ Populate item dropdown
+  Object.keys(RECIPES)
+    .filter(k => k !== "_tiers")
+    .sort()
+    .forEach(item => {
+      const option = document.createElement('option');
+      option.value = item;
+      option.textContent = item;
+      itemSelect.appendChild(option);
+    });
+
+  // ⭐ Auto-fill natural rate when item is selected
+  itemSelect.addEventListener("change", () => {
+    const slug = itemSelect.value;
+    const recipe = RECIPES[slug];
+
+    if (!recipe) {
+      // RAW item → no natural rate
+      if (!rateInput.dataset.manual) rateInput.value = "";
+      return;
+    }
+
+    // Natural output = (output per craft / time) * 60
+    const naturalPerMin = Math.round((recipe.output / recipe.time) * 60);
+
+    if (!rateInput.dataset.manual) {
+      rateInput.value = naturalPerMin;
+    }
+  });
+
+  // ⭐ Manual override detection
+  rateInput.addEventListener("input", () => {
+    rateInput.dataset.manual = "true";
+  });
 
   // ⭐ Auto-load shared calculation if URL contains parameters
   const params = new URLSearchParams(window.location.search);
@@ -621,8 +657,11 @@ async function init() {
   const sharedRail = params.get("rail");
 
   if (sharedItem) itemSelect.value = sharedItem;
-  if (sharedRate) document.getElementById("rateInput").value = sharedRate;
-  if (sharedRail) document.getElementById("railSelect").value = sharedRail;
+  if (sharedRate) {
+    rateInput.value = sharedRate;
+    rateInput.dataset.manual = "true"; // user-defined
+  }
+  if (sharedRail) railSelect.value = sharedRail;
 
   // If item + rate exist, auto-run the calculator
   if (sharedItem && sharedRate) {
@@ -635,10 +674,9 @@ async function init() {
     calcButton.addEventListener("click", () => {
       runCalculator();
 
-      // ⭐ Update URL with shareable parameters
-      const item = document.getElementById("itemSelect").value;
-      const rate = document.getElementById("rateInput").value;
-      const rail = document.getElementById("railSelect").value;
+      const item = itemSelect.value;
+      const rate = rateInput.value;
+      const rail = railSelect.value;
 
       const newParams = new URLSearchParams({ item, rate, rail });
       history.replaceState(null, "", "?" + newParams.toString());
@@ -649,13 +687,16 @@ async function init() {
   document.getElementById("clearStateBtn").addEventListener("click", () => {
     const base = window.location.origin;
 
-    // If running locally
+    // Reset manual override
+    rateInput.dataset.manual = "";
+
+    // Local dev
     if (base.includes("localhost")) {
       window.location.href = "http://localhost:8000";
       return;
     }
 
-    // Otherwise production
+    // Production
     window.location.href = "https://srcraftingcalculations.github.io/sr-crafting-calculator/";
   });
 
@@ -668,7 +709,6 @@ async function init() {
       navigator.clipboard.writeText(url).then(() => {
         showToast("Shareable link copied!");
       }).catch(() => {
-        // Fallback for browsers that block clipboard API
         const temp = document.createElement("input");
         temp.value = url;
         document.body.appendChild(temp);
