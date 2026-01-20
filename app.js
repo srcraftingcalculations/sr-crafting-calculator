@@ -1,5 +1,5 @@
 // ===============================
-// app.js - Full updated script (numbers centered reliably)
+// app.js - Full updated script with pulsing interaction
 // ===============================
 
 // ===============================
@@ -225,7 +225,7 @@ function buildGraphData(chain, rootItem) {
 }
 
 // ===============================
-// Render graph (numbers centered)
+// Render graph (numbers centered) + pulsing attributes
 // ===============================
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
@@ -274,18 +274,21 @@ function renderGraph(nodes, links, rootItem) {
   // Build inner SVG
   let inner = '';
 
+  // Lines with data attributes for pulsing
   for (const link of links) {
     const from = nodes.find(n => n.id === link.from);
     const to = nodes.find(n => n.id === link.to);
     if (!from || !to) continue;
 
     inner += `
-      <line x1="${from.x}" y1="${from.y}"
+      <line class="graph-edge" data-from="${escapeHtml(from.id)}" data-to="${escapeHtml(to.id)}"
+            x1="${from.x}" y1="${from.y}"
             x2="${to.x}" y2="${to.y}"
-            stroke="#999" stroke-width="2" />
+            stroke="#999" stroke-width="2" stroke-linecap="round" />
     `;
   }
 
+  // Nodes with data-id and focusable for keyboard
   for (const node of nodes) {
     const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
     const strokeColor = "#2c3e50";
@@ -293,9 +296,8 @@ function renderGraph(nodes, links, rootItem) {
 
     const labelY = node.y - labelOffset;
 
-    // IMPORTANT: number text is placed exactly at node.y and uses baseline CSS to center.
     inner += `
-      <g>
+      <g class="graph-node" data-id="${escapeHtml(node.id)}">
         <text class="nodeLabel" x="${node.x}" y="${labelY}"
               text-anchor="middle" font-size="13" font-weight="700"
               fill="${textColor}"
@@ -303,8 +305,8 @@ function renderGraph(nodes, links, rootItem) {
           ${escapeHtml(node.label)}
         </text>
 
-        <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
-                fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" />
+        <circle class="graph-node-circle" data-id="${escapeHtml(node.id)}" cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
+                fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" tabindex="0" />
 
         ${node.raw ? "" : (
           `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20"
@@ -364,6 +366,151 @@ function ensureResetButton() {
   btn.innerHTML = `<button id="resetViewBtn" type="button">Reset view</button>`;
   container.appendChild(btn);
   return btn;
+}
+
+// ===============================
+// Inject pulsing CSS (once)
+// ===============================
+(function injectPulseStyles() {
+  if (document.getElementById('graphPulseStyles')) return;
+  const style = document.createElement('style');
+  style.id = 'graphPulseStyles';
+  style.textContent = `
+    @keyframes nodePulse {
+      0% { stroke-width: 2; filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
+      50% { stroke-width: 6; filter: drop-shadow(0 0 10px rgba(255,200,50,0.9)); }
+      100% { stroke-width: 2; filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
+    }
+    @keyframes edgePulse {
+      0% { stroke-opacity: 0.6; stroke-width: 2; }
+      50% { stroke-opacity: 1; stroke-width: 4; }
+      100% { stroke-opacity: 0.6; stroke-width: 2; }
+    }
+    .pulse-origin { animation: nodePulse 900ms ease-in-out infinite; stroke: #ffd27a !important; }
+    .pulse-node { animation: nodePulse 900ms ease-in-out infinite; stroke: #ffcc66 !important; }
+    .pulse-edge { animation: edgePulse 900ms ease-in-out infinite; stroke: #ffcc66 !important; }
+    /* Reduced motion fallback */
+    @media (prefers-reduced-motion: reduce) {
+      .pulse-origin, .pulse-node { animation: none !important; stroke-width: 4 !important; stroke: #ffd27a !important; }
+      .pulse-edge { animation: none !important; stroke-width: 3 !important; stroke: #ffcc66 !important; stroke-opacity: 1 !important; }
+    }
+    /* Make node circles keyboard-focus visible */
+    .graph-node-circle:focus { outline: none; stroke-width: 3; stroke: #88c0ff; }
+  `;
+  document.head.appendChild(style);
+})();
+
+// ===============================
+// Attach pulsing handlers after graph render
+// ===============================
+function attachPulseHandlers(wrapper) {
+  if (!wrapper) return;
+  const svg = wrapper.querySelector('svg.graphSVG');
+  if (!svg) return;
+
+  // Helper to clear all pulses
+  function clearPulses() {
+    svg.querySelectorAll('.pulse-origin').forEach(el => el.classList.remove('pulse-origin'));
+    svg.querySelectorAll('.pulse-node').forEach(el => el.classList.remove('pulse-node'));
+    svg.querySelectorAll('.pulse-edge').forEach(el => el.classList.remove('pulse-edge'));
+  }
+
+  // Find elements
+  const nodeCircles = Array.from(svg.querySelectorAll('circle.graph-node-circle[data-id]'));
+  const edges = Array.from(svg.querySelectorAll('line.graph-edge[data-from][data-to]'));
+
+  // Build quick maps
+  const circleById = {};
+  nodeCircles.forEach(c => circleById[c.getAttribute('data-id')] = c);
+
+  const incomingMap = {}; // targetId -> [edgeElement,...]
+  edges.forEach(e => {
+    const to = e.getAttribute('data-to');
+    if (!incomingMap[to]) incomingMap[to] = [];
+    incomingMap[to].push(e);
+  });
+
+  // Propagation depth (1 = immediate inputs). You can increase if desired.
+  const PROPAGATION_DEPTH = 1;
+  const STAGGER_MS = 90;
+
+  // Click handler
+  function onNodeActivate(evt) {
+    const target = evt.currentTarget;
+    const nodeId = target.getAttribute('data-id');
+    if (!nodeId) return;
+
+    // If this node is already origin, toggle off
+    if (target.classList.contains('pulse-origin')) {
+      clearPulses();
+      return;
+    }
+
+    clearPulses();
+
+    // Mark origin
+    target.classList.add('pulse-origin');
+
+    // BFS upstream to PROPAGATION_DEPTH
+    const visited = new Set();
+    const queue = [{ id: nodeId, depth: 0 }];
+
+    while (queue.length) {
+      const { id, depth } = queue.shift();
+      if (visited.has(id)) continue;
+      visited.add(id);
+
+      const incoming = incomingMap[id] || [];
+      incoming.forEach((edgeEl, idx) => {
+        // stagger animation slightly per edge
+        const fromId = edgeEl.getAttribute('data-from');
+        const sourceCircle = circleById[fromId];
+        const delay = depth * STAGGER_MS + idx * Math.max(20, STAGGER_MS / 2);
+
+        // edge pulse
+        setTimeout(() => {
+          edgeEl.classList.add('pulse-edge');
+        }, delay);
+
+        // source node pulse (weaker than origin)
+        if (sourceCircle) {
+          setTimeout(() => {
+            // don't override origin if it becomes part of propagation
+            if (!sourceCircle.classList.contains('pulse-origin')) sourceCircle.classList.add('pulse-node');
+          }, delay + 10);
+        }
+
+        // enqueue upstream if depth allows
+        if (depth + 1 <= PROPAGATION_DEPTH) {
+          queue.push({ id: fromId, depth: depth + 1 });
+        }
+      });
+    }
+  }
+
+  // Keyboard handler (Enter/Space)
+  function onNodeKey(evt) {
+    if (evt.key === 'Enter' || evt.key === ' ') {
+      evt.preventDefault();
+      evt.currentTarget.click();
+    }
+  }
+
+  // Attach listeners
+  nodeCircles.forEach(c => {
+    // remove previous listeners to avoid duplicates
+    c.removeEventListener('click', onNodeActivate);
+    c.removeEventListener('keydown', onNodeKey);
+    c.addEventListener('click', onNodeActivate);
+    c.addEventListener('keydown', onNodeKey);
+  });
+
+  // Clicking outside the graph clears pulses
+  function onDocClick(e) {
+    if (!svg.contains(e.target)) clearPulses();
+  }
+  document.removeEventListener('click', onDocClick);
+  document.addEventListener('click', onDocClick);
 }
 
 // ===============================
@@ -619,6 +766,9 @@ function renderTable(chainObj, rootItem, rate) {
   const wrapper = graphArea.querySelector(".graphWrapper");
   const resetBtn = document.querySelector('#resetViewBtn');
   setupGraphZoom(wrapper, { autoFit: true, resetButtonEl: resetBtn });
+
+  // Attach pulsing handlers to the freshly rendered graph
+  attachPulseHandlers(wrapper);
 
   const railSpeed = parseInt(document.getElementById("railSelect").value) || 0;
 
