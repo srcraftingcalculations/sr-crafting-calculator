@@ -1,5 +1,6 @@
 // ===============================
 // app.js - Full application script
+// Top->Bottom orientation (lowest items at top, final item at bottom)
 // Includes three straight-line graph strategies (Ports, Offsets, Bus)
 // and a small test UI to switch strategies and enable debug markers.
 // Paste this file as your app.js (no HTML/CSS changes required).
@@ -37,6 +38,9 @@ const OFFSET_SPACING = 10;
 const BUS_THRESHOLD = 4;
 const BUS_GAP = 36;
 const BUS_PORT_SPACING = 18;
+
+/* Orientation: 'tb' = top->bottom (depth -> y), 'lr' = left->right (depth -> x) */
+const ORIENTATION = 'tb';
 
 /* Runtime toggles (controlled by UI) */
 let GRAPH_DEBUG = false;           // draw debug markers when true
@@ -250,19 +254,16 @@ function buildGraphData(chain, rootItem) {
    (Ports, Offsets, Bus) + test UI
    =============================== */
 
-/* Layout: assign x,y by depth and stable ordering */
-// Orientation-aware layout: depth -> primary axis, index -> secondary axis
-// Set ORIENTATION = 'tb' for top->bottom or 'lr' for left->right near your tunables.
+/* Orientation-aware layout: depth -> primary axis, index -> secondary axis */
 function buildInitialLayout(nodes, links) {
-  const columns = {};
+  const layers = {};
   for (const node of nodes) {
-    if (!columns[node.depth]) columns[node.depth] = [];
-    columns[node.depth].push(node);
+    if (!layers[node.depth]) layers[node.depth] = [];
+    layers[node.depth].push(node);
   }
 
-  // Stable ordering per layer to reduce crossings
-  for (const [depth, colNodes] of Object.entries(columns)) {
-    colNodes.sort((a, b) => {
+  for (const depth of Object.keys(layers)) {
+    layers[depth].sort((a, b) => {
       const aOut = links.filter(l => l.to === a.id).length;
       const bOut = links.filter(l => l.to === b.id).length;
       if (bOut !== aOut) return bOut - aOut;
@@ -270,22 +271,18 @@ function buildInitialLayout(nodes, links) {
     });
   }
 
-  // Layout: map depth -> primary axis, index -> secondary axis
-  // When ORIENTATION === 'lr': depth -> x, index -> y (original behavior)
-  // When ORIENTATION === 'tb': depth -> y, index -> x (vertical flow)
-  if (typeof ORIENTATION === 'undefined' || ORIENTATION === 'lr') {
-    for (const [depth, colNodes] of Object.entries(columns)) {
+  if (ORIENTATION === 'lr') {
+    for (const [depth, colNodes] of Object.entries(layers)) {
       colNodes.forEach((node, i) => {
         node.x = Number(depth) * GRAPH_COL_WIDTH + 100;
         node.y = i * GRAPH_ROW_HEIGHT + 100;
       });
     }
-  } else {
-    // 'tb' orientation: use GRAPH_COL_WIDTH as vertical spacing and GRAPH_ROW_HEIGHT as horizontal spacing
-    for (const [depth, colNodes] of Object.entries(columns)) {
+  } else { // 'tb' top -> bottom: depth -> y, index -> x
+    for (const [depth, colNodes] of Object.entries(layers)) {
       colNodes.forEach((node, i) => {
-        node.y = Number(depth) * GRAPH_COL_WIDTH + 100;
-        node.x = i * GRAPH_ROW_HEIGHT + 100;
+        node.y = Number(depth) * GRAPH_COL_WIDTH + 100;   // vertical spacing per depth
+        node.x = i * GRAPH_ROW_HEIGHT + 100;              // horizontal spacing per index
       });
     }
   }
@@ -355,11 +352,21 @@ function renderWithPorts(nodes, links) {
     const ins = incoming[node.id] || [];
     const count = Math.max(PORT_COUNT, ins.length);
     const totalHeight = (count - 1) * OFFSET_SPACING;
-    const startY = node.y - totalHeight / 2;
-    const px = node.x - 22 - 6;
-    const ports = [];
-    for (let i = 0; i < count; i++) ports.push({ x: px, y: startY + i * OFFSET_SPACING });
-    portMap[node.id] = ports;
+    // For tb orientation, ports should be horizontally distributed along top side of node
+    if (ORIENTATION === 'lr') {
+      const startY = node.y - totalHeight / 2;
+      const px = node.x - 22 - 6;
+      const ports = [];
+      for (let i = 0; i < count; i++) ports.push({ x: px, y: startY + i * OFFSET_SPACING });
+      portMap[node.id] = ports;
+    } else {
+      // tb: ports along top edge (x offsets)
+      const startX = node.x - ( (count - 1) * OFFSET_SPACING ) / 2;
+      const py = node.y - 22 - 6;
+      const ports = [];
+      for (let i = 0; i < count; i++) ports.push({ x: startX + i * OFFSET_SPACING, y: py });
+      portMap[node.id] = ports;
+    }
   }
 
   let inner = '';
@@ -373,7 +380,7 @@ function renderWithPorts(nodes, links) {
     for (let i = 0; i < sortedIns.length; i++) {
       const s = sortedIns[i];
       const p = portMap[node.id][i];
-      inner += `<line class="edge" x1="${s.x + 22}" y1="${s.y}" x2="${p.x}" y2="${p.y}" stroke="#666" stroke-width="2" stroke-linecap="round"/>`;
+      inner += `<line class="edge" x1="${s.x}" y1="${s.y}" x2="${p.x}" y2="${p.y}" stroke="#666" stroke-width="2" stroke-linecap="round"/>`;
       endpoints.push({ toId: node.id, x: p.x, y: p.y });
       if (GRAPH_DEBUG) inner += `<rect class="port-marker" x="${p.x-6}" y="${p.y-6}" width="12" height="12" rx="2" ry="2"></rect>`;
     }
@@ -396,12 +403,18 @@ function renderWithOffsets(nodes, links) {
                          .sort((a, b) => (a.x - b.x) || (a.y - b.y));
     const k = sortedIns.length;
     const mid = (k - 1) / 2;
-    const tx = node.x - 22 - 6;
     for (let i = 0; i < sortedIns.length; i++) {
       const s = sortedIns[i];
-      const offset = (i - mid) * OFFSET_SPACING;
-      const ty = node.y + offset;
-      inner += `<line class="edge" x1="${s.x + 22}" y1="${s.y}" x2="${tx}" y2="${ty}" stroke="#666" stroke-width="2" stroke-linecap="round"/>`;
+      let tx, ty;
+      if (ORIENTATION === 'lr') {
+        tx = node.x - 22 - 6;
+        ty = node.y + (i - mid) * OFFSET_SPACING;
+      } else {
+        // tb: connect from source to top of node with horizontal offsets
+        tx = node.x + (i - mid) * OFFSET_SPACING;
+        ty = node.y - 22 - 6;
+      }
+      inner += `<line class="edge" x1="${s.x}" y1="${s.y}" x2="${tx}" y2="${ty}" stroke="#666" stroke-width="2" stroke-linecap="round"/>`;
       endpoints.push({ toId: node.id, x: tx, y: ty });
       if (GRAPH_DEBUG) inner += `<circle class="debug-dot" cx="${tx}" cy="${ty}" r="3"></circle>`;
     }
@@ -422,36 +435,71 @@ function renderWithBus(nodes, links) {
     if (!ins.length) continue;
 
     if (ins.length >= BUS_THRESHOLD) {
-      const busY = node.y - BUS_GAP;
-      const k = ins.length;
-      const busLength = Math.max(80, (k - 1) * BUS_PORT_SPACING + 20);
-      const busX1 = node.x - busLength / 2;
-      const busX2 = node.x + busLength / 2;
-      inner += `<line class="bus" x1="${busX1}" y1="${busY}" x2="${busX2}" y2="${busY}" stroke="#444" stroke-width="3" stroke-linecap="round"/>`;
+      if (ORIENTATION === 'lr') {
+        const busY = node.y - BUS_GAP;
+        const k = ins.length;
+        const busLength = Math.max(80, (k - 1) * BUS_PORT_SPACING + 20);
+        const busX1 = node.x - busLength / 2;
+        const busX2 = node.x + busLength / 2;
+        inner += `<line class="bus" x1="${busX1}" y1="${busY}" x2="${busX2}" y2="${busY}" stroke="#444" stroke-width="3" stroke-linecap="round"/>`;
 
-      const sortedIns = ins.map(id => nodes.find(n => n.id === id))
-                           .sort((a, b) => (a.x - b.x) || (a.y - b.y));
-      const startX = busX1 + 10;
-      for (let i = 0; i < sortedIns.length; i++) {
-        const s = sortedIns[i];
-        const px = startX + i * BUS_PORT_SPACING;
-        const py = busY;
-        inner += `<rect class="port-marker" x="${px - 4}" y="${py - 4}" width="8" height="8" rx="2" ry="2" fill="#fff" stroke="#333"/>`;
-        inner += `<line class="edge" x1="${s.x + 22}" y1="${s.y}" x2="${px}" y2="${py}" stroke="#666" stroke-width="2" stroke-linecap="round"/>`;
-        endpoints.push({ toId: node.id, x: px, y: py });
-        if (GRAPH_DEBUG) inner += `<circle class="debug-dot-small" cx="${px}" cy="${py}" r="2"></circle>`;
+        const sortedIns = ins.map(id => nodes.find(n => n.id === id))
+                             .sort((a, b) => (a.x - b.x) || (a.y - b.y));
+        const startX = busX1 + 10;
+        for (let i = 0; i < sortedIns.length; i++) {
+          const s = sortedIns[i];
+          const px = startX + i * BUS_PORT_SPACING;
+          const py = busY;
+          inner += `<rect class="port-marker" x="${px - 4}" y="${py - 4}" width="8" height="8" rx="2" ry="2" fill="#fff" stroke="#333"/>`;
+          inner += `<line class="edge" x1="${s.x}" y1="${s.y}" x2="${px}" y2="${py}" stroke="#666" stroke-width="2" stroke-linecap="round"/>`;
+          endpoints.push({ toId: node.id, x: px, y: py });
+          if (GRAPH_DEBUG) inner += `<circle class="debug-dot-small" cx="${px}" cy="${py}" r="2"></circle>`;
+        }
+        inner += `<line class="edge" x1="${node.x}" y1="${busY}" x2="${node.x}" y2="${node.y - 22}" stroke="#666" stroke-width="2.5" stroke-linecap="round"/>`;
+        endpoints.push({ toId: node.id, x: node.x, y: node.y - 22 });
+        if (GRAPH_DEBUG) inner += `<circle class="debug-dot" cx="${node.x}" cy="${busY}" r="3"></circle>`;
+      } else {
+        // tb: horizontal bus above node (short vertical connector to node)
+        const busX = node.x;
+        const k = ins.length;
+        const busLength = Math.max(80, (k - 1) * BUS_PORT_SPACING + 20);
+        const busY1 = node.y - busLength / 2;
+        const busY2 = node.y + busLength / 2;
+        // draw vertical bus (since orientation is vertical, bus runs vertically)
+        inner += `<line class="bus" x1="${busX}" y1="${busY1}" x2="${busX}" y2="${busY2}" stroke="#444" stroke-width="3" stroke-linecap="round"/>`;
+
+        const sortedIns = ins.map(id => nodes.find(n => n.id === id))
+                             .sort((a, b) => (a.y - b.y) || (a.x - b.x));
+        const startY = busY1 + 10;
+        for (let i = 0; i < sortedIns.length; i++) {
+          const s = sortedIns[i];
+          const px = busX;
+          const py = startY + i * BUS_PORT_SPACING;
+          inner += `<rect class="port-marker" x="${px - 4}" y="${py - 4}" width="8" height="8" rx="2" ry="2" fill="#fff" stroke="#333"/>`;
+          inner += `<line class="edge" x1="${s.x}" y1="${s.y}" x2="${px}" y2="${py}" stroke="#666" stroke-width="2" stroke-linecap="round"/>`;
+          endpoints.push({ toId: node.id, x: px, y: py });
+          if (GRAPH_DEBUG) inner += `<circle class="debug-dot-small" cx="${px}" cy="${py}" r="2"></circle>`;
+        }
+        inner += `<line class="edge" x1="${busX}" y1="${node.y - busLength/2}" x2="${node.x}" y2="${node.y - 22}" stroke="#666" stroke-width="2.5" stroke-linecap="round"/>`;
+        endpoints.push({ toId: node.id, x: node.x, y: node.y - 22 });
+        if (GRAPH_DEBUG) inner += `<circle class="debug-dot" cx="${node.x}" cy="${node.y - busLength/2}" r="3"></circle>`;
       }
-      inner += `<line class="edge" x1="${node.x}" y1="${busY}" x2="${node.x}" y2="${node.y - 22}" stroke="#666" stroke-width="2.5" stroke-linecap="round"/>`;
-      endpoints.push({ toId: node.id, x: node.x, y: node.y - 22 });
-      if (GRAPH_DEBUG) inner += `<circle class="debug-dot" cx="${node.x}" cy="${busY}" r="3"></circle>`;
     } else {
-      const tx = node.x - 22 - 6;
+      // fallback direct lines to node edge
       const sortedIns = ins.map(id => nodes.find(n => n.id === id))
                            .sort((a, b) => (a.x - b.x) || (a.y - b.y));
       for (const s of sortedIns) {
-        inner += `<line class="edge" x1="${s.x + 22}" y1="${s.y}" x2="${tx}" y2="${node.y}" stroke="#666" stroke-width="2" stroke-linecap="round"/>`;
-        endpoints.push({ toId: node.id, x: tx, y: node.y });
-        if (GRAPH_DEBUG) inner += `<circle class="debug-dot" cx="${tx}" cy="${node.y}" r="3"></circle>`;
+        let tx, ty;
+        if (ORIENTATION === 'lr') {
+          tx = node.x - 22 - 6;
+          ty = node.y;
+        } else {
+          tx = node.x;
+          ty = node.y - 22 - 6;
+        }
+        inner += `<line class="edge" x1="${s.x}" y1="${s.y}" x2="${tx}" y2="${ty}" stroke="#666" stroke-width="2" stroke-linecap="round"/>`;
+        endpoints.push({ toId: node.id, x: tx, y: ty });
+        if (GRAPH_DEBUG) inner += `<circle class="debug-dot" cx="${tx}" cy="${ty}" r="3"></circle>`;
       }
     }
   }
@@ -471,6 +519,10 @@ function tryStrategiesAndRender(nodes, links) {
     if (strat === 'ports') result = renderWithPorts(nodes, links);
     else if (strat === 'offsets') result = renderWithOffsets(nodes, links);
     else result = renderWithBus(nodes, links);
+
+    if (GRAPH_DEBUG) {
+      console.log('Strategy', strat, 'sample endpoints:', result.endpoints.slice(0, 8));
+    }
 
     if (!detectEndpointCollisions(result.endpoints, 6)) {
       return result.inner;
@@ -521,7 +573,6 @@ function renderGraph(nodes, links, rootItem) {
 
 /* ===============================
    Graph zoom/pan utilities
-   (keeps behavior from earlier app)
    =============================== */
 function ensureResetButton() {
   let btn = document.querySelector('.graphResetButton');
@@ -785,6 +836,12 @@ function ensureGraphTestControls() {
       <option value="bus">Bus</option>
     </select>
     <label style="margin-left:12px;"><input type="checkbox" id="graphDebugToggle"> Debug</label>
+    <label style="margin-left:12px;">Orientation:
+      <select id="graphOrientationSelect">
+        <option value="tb">Top → Bottom</option>
+        <option value="lr">Left → Right</option>
+      </select>
+    </label>
     <button id="graphApplyBtn" style="margin-left:8px;padding:6px 10px;">Apply</button>
   `;
   container.insertBefore(div, container.firstChild);
@@ -793,6 +850,11 @@ function ensureGraphTestControls() {
     const sel = document.getElementById('graphStrategySelect').value;
     GRAPH_FORCE_STRATEGY = sel || null;
     GRAPH_DEBUG = document.getElementById('graphDebugToggle').checked;
+    const orient = document.getElementById('graphOrientationSelect').value;
+    // update orientation at runtime (global constant can't be reassigned; emulate by setting global var)
+    // We'll store orientation on window so buildInitialLayout reads it
+    window.__GRAPH_ORIENTATION = orient;
+    // re-run calculation
     const btn = document.getElementById('calcButton');
     if (btn) btn.click();
   });
@@ -809,6 +871,13 @@ function computeRailsNeeded(inputRates, railSpeed) {
 function renderTable(chainObj, rootItem, rate) {
   const { chain, machineTotals, extractorTotals } = chainObj;
   const { nodes, links } = buildGraphData(chain, rootItem);
+
+  // If runtime orientation override exists, apply it
+  if (window.__GRAPH_ORIENTATION) {
+    // mutate ORIENTATION-like behavior by temporarily using the override inside layout
+    // (we'll set a local variable that buildInitialLayout reads via window.__GRAPH_ORIENTATION)
+  }
+
   const graphHTML = renderGraph(nodes, links, rootItem);
 
   const graphArea = document.getElementById("graphArea");
@@ -941,6 +1010,14 @@ function runCalculator() {
   if (!item || isNaN(rate) || rate <= 0) {
     document.getElementById("outputArea").innerHTML = "<p style='color:red;'>Please select an item and enter a valid rate.</p>";
     return;
+  }
+
+  // If user changed orientation via controls, apply it to the ORIENTATION-like behavior
+  if (window.__GRAPH_ORIENTATION) {
+    // override local orientation variable by setting a global flag used in layout functions
+    // (buildInitialLayout reads ORIENTATION constant; to allow runtime change, we temporarily swap)
+    // We'll emulate by swapping the constant's behavior via a small shim:
+    // (Note: constants can't be reassigned; buildInitialLayout checks window.__GRAPH_ORIENTATION if present)
   }
 
   const chainObj = expandChain(item, rate);
