@@ -609,8 +609,14 @@ function attachAnchorHandlers(wrapper) {
    - group (<g class="graph-node">) includes inline style to suppress focus box
    - child label/rect/number set pointer-events="none" so group receives pointer events
    =============================== */
+/* ===============================
+   renderGraph (nodes + anchors only)
+   - Removes all line/wire rendering; keeps nodes, anchors, and spine placeholders
+   =============================== */
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
+  const anchorRadius = 5;
+  const anchorHitRadius = 12; // invisible hit area
   const isDark = isDarkMode();
 
   // Group nodes by depth
@@ -634,6 +640,7 @@ function renderGraph(nodes, links, rootItem) {
     });
   }
 
+  // Compute content bounds
   const xs = nodes.map(n => n.x);
   const ys = nodes.map(n => n.y);
   const minX = nodes.length ? Math.min(...xs) : 0;
@@ -649,29 +656,30 @@ function renderGraph(nodes, links, rootItem) {
   // Build inner SVG
   let inner = '';
 
-  // Edges
-  for (const link of links) {
-    const from = nodes.find(n => n.id === link.from);
-    const to = nodes.find(n => n.id === link.to);
-    if (!from || !to) continue;
-
+  // Spine placeholders (one per depth column) - faint vertical guide and helper placeholder area
+  for (const depthKey of Object.keys(columns)) {
+    const depth = Number(depthKey);
+    const spineX = depth * GRAPH_COL_WIDTH + 100 + nodeRadius + 36; // slightly right of nodes
+    const topY = minY - GRAPH_ROW_HEIGHT;
+    const bottomY = maxY + GRAPH_ROW_HEIGHT;
     inner += `
-      <line class="graph-edge" data-from="${escapeHtml(from.id)}" data-to="${escapeHtml(to.id)}"
-            x1="${from.x}" y1="${from.y}"
-            x2="${to.x}" y2="${to.y}"
-            stroke="#999" stroke-width="2" stroke-linecap="round" />
+      <g class="spine-placeholder" data-depth="${depth}">
+        <line x1="${spineX}" y1="${topY}" x2="${spineX}" y2="${bottomY}"
+              stroke="${isDark ? '#2b2b2b' : '#e9e9e9'}" stroke-width="1" stroke-dasharray="4 6" opacity="0.35" pointer-events="none" />
+        <!-- helper placeholder area (above nodes) -->
+        <rect x="${spineX - 18}" y="${topY - 44}" width="36" height="28" rx="6" ry="6"
+              fill="${isDark ? '#222' : '#fff'}" stroke="${isDark ? '#444' : '#ddd'}" stroke-width="1" opacity="0.6" pointer-events="none" />
+      </g>
     `;
   }
 
-  // Nodes
+  // Nodes + anchors (no edges)
   for (const node of nodes) {
     const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
     const strokeColor = "#2c3e50";
     const textColor = getTextColor(fillColor);
     const labelY = node.y - GRAPH_LABEL_OFFSET;
 
-    // NOTE: inline style "outline:none" prevents the browser focus box around the group.
-    // Child elements have pointer-events="none" so the group receives pointer events reliably.
     inner += `
       <g class="graph-node" data-id="${escapeHtml(node.id)}" tabindex="0" role="button" aria-label="${escapeHtml(node.label)}" style="outline:none;">
         <text class="nodeLabel" x="${node.x}" y="${labelY}"
@@ -694,8 +702,33 @@ function renderGraph(nodes, links, rootItem) {
               pointer-events="none">
           ${node.raw ? "" : Math.ceil(node.machines)}
         </text>
-      </g>
     `;
+
+    // Left input anchor (if present)
+    if (node.hasInputAnchor) {
+      const ax = node.x - nodeRadius - 10;
+      const ay = node.y;
+      inner += `
+        <g class="anchor anchor-left" data-node="${escapeHtml(node.id)}" data-side="left" transform="translate(${ax},${ay})" tabindex="0" role="button" aria-label="Input anchor for ${escapeHtml(node.label)}">
+          <circle class="anchor-hit" cx="0" cy="0" r="${anchorHitRadius}" fill="transparent" pointer-events="all" />
+          <circle class="anchor-dot" cx="0" cy="0" r="${anchorRadius}" fill="${isDark ? '#ffffff' : '#2c3e50'}" stroke="${isDark ? '#000' : '#fff'}" stroke-width="1.2" />
+        </g>
+      `;
+    }
+
+    // Right output anchor (if present)
+    if (node.hasOutputAnchor) {
+      const bx = node.x + nodeRadius + 10;
+      const by = node.y;
+      inner += `
+        <g class="anchor anchor-right" data-node="${escapeHtml(node.id)}" data-side="right" transform="translate(${bx},${by})" tabindex="0" role="button" aria-label="Output anchor for ${escapeHtml(node.label)}">
+          <circle class="anchor-hit" cx="0" cy="0" r="${anchorHitRadius}" fill="transparent" pointer-events="all" />
+          <circle class="anchor-dot" cx="0" cy="0" r="${anchorRadius}" fill="${isDark ? '#ffffff' : '#2c3e50'}" stroke="${isDark ? '#000' : '#fff'}" stroke-width="1.2" />
+        </g>
+      `;
+    }
+
+    inner += `</g>`;
   }
 
   const viewBoxX = Math.floor(contentX);
