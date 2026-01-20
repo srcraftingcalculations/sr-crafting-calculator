@@ -651,7 +651,7 @@ async function init() {
 
     // If running locally
     if (base.includes("localhost")) {
-      window.location.href = "http://localhost:8000/sr-crafting-calculator/";
+      window.location.href = "http://localhost:8000";
       return;
     }
 
