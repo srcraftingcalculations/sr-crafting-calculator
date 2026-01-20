@@ -226,19 +226,26 @@ function buildGraphData(chain, rootItem) {
 // ===============================
 // Render Graph (no controls inside)
 // ===============================
+// Replace your existing renderGraph with this version
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
   const isDark = document.body.classList.contains("dark-mode");
 
+  // Group nodes by depth
   const columns = {};
   for (const node of nodes) {
     if (!columns[node.depth]) columns[node.depth] = [];
     columns[node.depth].push(node);
   }
 
-  const colWidth = 200;
-  const rowHeight = 90;
+  // Tweak these values to control spacing
+  const colWidth = 220;      // horizontal spacing between columns (increased)
+  const rowHeight = 120;     // vertical spacing between rows (increased)
+  const labelOffset = 40;    // distance from node center to label (increased)
+  const numberOffset = 8;    // distance from node center to number (increased slightly)
+  const contentPad = 64;     // padding around content so panning doesn't clip
 
+  // Layout nodes
   for (const [depth, colNodes] of Object.entries(columns)) {
     colNodes.sort((a, b) => {
       const aOut = links.filter(l => l.to === a.id).length;
@@ -259,12 +266,13 @@ function renderGraph(nodes, links, rootItem) {
   const minY = nodes.length ? Math.min(...ys) : 0;
   const maxY = nodes.length ? Math.max(...ys) : 0;
 
-  const contentPad = 48;
+  // Logical content bbox (include node radius and padding)
   const contentX = minX - nodeRadius - contentPad;
   const contentY = minY - nodeRadius - contentPad;
   const contentW = (maxX - minX) + (nodeRadius * 2) + contentPad * 2;
   const contentH = (maxY - minY) + (nodeRadius * 2) + contentPad * 2;
 
+  // Build inner SVG content
   let inner = '';
 
   for (const link of links) {
@@ -280,14 +288,21 @@ function renderGraph(nodes, links, rootItem) {
   }
 
   for (const node of nodes) {
-    const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
+    const fillColor = node.raw
+      ? "#f4d03f"
+      : MACHINE_COLORS[node.building] || "#95a5a6";
+
     const strokeColor = "#2c3e50";
     const textColor = getTextColor(fillColor);
 
+    // labelY and numberY use the offsets defined above for clearer separation
+    const labelY = node.y - labelOffset;
+    const numberY = node.y + numberOffset;
+
     inner += `
       <g>
-        <text x="${node.x}" y="${node.y - 30}"
-              text-anchor="middle" font-size="12" font-weight="600"
+        <text class="nodeLabel" x="${node.x}" y="${labelY}"
+              text-anchor="middle" font-size="13" font-weight="700"
               fill="${textColor}"
               stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6"
               paint-order="stroke">
@@ -298,12 +313,12 @@ function renderGraph(nodes, links, rootItem) {
                 fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" />
 
         ${node.raw ? "" : (
-          `<rect x="${node.x - 12}" y="${node.y - 8}" width="24" height="16"
-                 fill="${fillColor}" rx="3" ry="3" />`
+          `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20"
+                 fill="${fillColor}" rx="4" ry="4" />`
         )}
 
-        <text x="${node.x}" y="${node.y + 4}"
-              text-anchor="middle" font-size="12" font-weight="600"
+        <text class="nodeNumber" x="${node.x}" y="${numberY}"
+              text-anchor="middle" font-size="13" font-weight="700"
               fill="${textColor}"
               stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6"
               paint-order="stroke">
@@ -313,6 +328,7 @@ function renderGraph(nodes, links, rootItem) {
     `;
   }
 
+  // viewBox uses padded content bbox so panning won't clip nodes
   const viewBoxX = Math.floor(contentX);
   const viewBoxY = Math.floor(contentY);
   const viewBoxW = Math.ceil(contentW);

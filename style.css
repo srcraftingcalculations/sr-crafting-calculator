@@ -10,8 +10,8 @@ body {
 }
 
 /* ============================
-    HEADER WITH RESPONSIVE BANNER
-   ============================ */
+   Header with responsive banner
+============================ */
 header {
   position: relative;
   overflow: hidden;
@@ -26,7 +26,11 @@ header {
 }
 
 #headerBanner { display: none; }
-header > *:not(#headerBanner) { position: absolute; z-index: 2; }
+
+header > *:not(#headerBanner) {
+  position: absolute;
+  z-index: 2;
+}
 
 #logoBox {
   top: 50%;
@@ -41,8 +45,16 @@ header > *:not(#headerBanner) { position: absolute; z-index: 2; }
   border: 1px solid rgba(255, 255, 255, 0.15);
   backdrop-filter: blur(4px);
 }
+
 #siteLogo { height: 45px; width: auto; display: block; }
-#titleBox { top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+
+#titleBox {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
 #titleBox img { height: 70px; object-fit: contain; }
 
 #darkModeToggle {
@@ -66,20 +78,45 @@ header > *:not(#headerBanner) { position: absolute; z-index: 2; }
 }
 
 /* ============================
-   Controls
+   Controls and table container
 ============================ */
-#controls { margin: 20px 0; display: flex; gap: 10px; align-items: center; }
-button { padding: 6px 12px; cursor: pointer; border: 1px solid #444; background: #ddd; transition: background 0.3s; }
+#controls {
+  margin: 20px 0;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+button {
+  padding: 6px 12px;
+  cursor: pointer;
+  border: 1px solid #444;
+  background: #ddd;
+  transition: background 0.3s;
+}
 button:hover { background: #ccc; }
+
 #tableContainer { text-align: center; }
 #controls { display: inline-block; text-align: left; margin-bottom: 20px; }
 
 /* ============================
-   Table Styling
+   Table styling
 ============================ */
-table { width: 100%; border-collapse: collapse; background: white; color: #222; margin-top: 20px; }
-table th { background: #2f4f4f; color: white; padding: 8px; }
-table td { padding: 6px 10px; border: 1px solid #ccc; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  color: #222;
+  margin-top: 20px;
+}
+table th {
+  background: #2f4f4f;
+  color: white;
+  padding: 8px;
+}
+table td {
+  padding: 8px 12px; /* slightly more padding for readability */
+  border: 1px solid #ccc;
+}
 
 /* ============================
    Reset button (below tables, above graph)
@@ -100,7 +137,7 @@ table td { padding: 6px 10px; border: 1px solid #ccc; }
 .graphResetButton button:hover { filter: brightness(0.98); }
 
 /* ============================
-   Graph Area
+   Graph area
 ============================ */
 #graphArea { margin-top: 8px; }
 #graphArea svg text { fill: #333; }
@@ -108,20 +145,69 @@ table td { padding: 6px 10px; border: 1px solid #ccc; }
 /* ============================
    Graph wrapper: auto-fit + pan/zoom
    (no slider; panning via transform)
+   - reserves vertical space for reset button above graph
+   - uses padded viewBox so panning doesn't clip nodes
 ============================ */
 .graphWrapper {
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
   max-height: calc(100vh - 220px);
-  overflow: hidden;
+  overflow: hidden; /* panning via transform, no scrollbars initially */
   padding: 8px;
+  padding-top: 12px; /* small top padding; reset button sits in document flow */
   border-radius: 6px;
   background: rgba(255,255,255,0.02);
 }
 
-.graphWrapper .graphViewport { width: 100%; height: 100%; display: block; }
-.graphWrapper svg.graphSVG { width: 100%; height: auto; display: block; user-select: none; -webkit-user-select: none; -ms-user-select: none; }
+/* Ensure SVG fills wrapper and respects viewBox */
+.graphWrapper .graphViewport {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.graphWrapper svg.graphSVG {
+  width: 100%;
+  height: auto;
+  display: block;
+  user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+}
+
+/* ============================
+   SVG text spacing and readability
+   (increased spacing between labels, numbers, and nodes)
+============================ */
+.graphSVG text.nodeLabel {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  dominant-baseline: central;
+  paint-order: stroke;
+  stroke-linejoin: round;
+}
+.graphSVG text.nodeNumber {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  dominant-baseline: central;
+  paint-order: stroke;
+  stroke-linejoin: round;
+}
+
+/* Slightly larger default SVG text stroke for contrast */
+.graphSVG text {
+  paint-order: stroke;
+  stroke-width: 0.6px;
+  stroke-linejoin: round;
+}
+
+/* Node rect adjustments (if present) */
+.graphSVG rect {
+  rx: 4;
+  ry: 4;
+}
 
 /* Cursor styles for panning */
 .graphSVG { cursor: grab; display: block; }
@@ -132,10 +218,17 @@ table td { padding: 6px 10px; border: 1px solid #ccc; }
 .graphWrapper::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 6px; }
 
 /* ============================
-   DARK MODE
+   Dark mode
 ============================ */
-body.dark { background: #1e1e1e; color: #ddd; }
-body.dark button { background: #444; color: #eee; border-color: #666; }
+body.dark {
+  background: #1e1e1e;
+  color: #ddd;
+}
+body.dark button {
+  background: #444;
+  color: #eee;
+  border-color: #666;
+}
 body.dark button:hover { background: #555; }
 body.dark table { background: #2a2a2a; color: #ddd; }
 body.dark table th { background: #444; color: #fff; }
@@ -144,13 +237,37 @@ body.dark #graphArea svg text { fill: #ddd; }
 body.dark #logoBox { background: rgba(0, 0, 0, 0.65); border-color: rgba(255,255,255,0.15); }
 
 /* ============================
-   TOAST
+   Toast
 ============================ */
-#toastContainer { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 10px; z-index: 9999; }
-.toast { padding: 12px 18px; border-radius: 6px; font-size: 14px; font-weight: 600; color: white; background: rgba(0, 0, 0, 0.85); opacity: 0; transform: translateY(20px); transition: opacity 0.3s ease, transform 0.3s ease; }
+#toastContainer {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 9999;
+}
+.toast {
+  padding: 12px 18px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: white;
+  background: rgba(0, 0, 0, 0.85);
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
 body.dark .toast { background: rgba(255, 255, 255, 0.85); color: black; }
 .toast.show { opacity: 1; transform: translateY(0); }
 
-/* Accessibility & small tweaks */
+/* ============================
+   Accessibility & small tweaks
+============================ */
 .graphResetButton button:focus { outline: 2px solid rgba(0, 120, 215, 0.6); outline-offset: 2px; }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
