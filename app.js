@@ -334,10 +334,11 @@ function buildGraphData(chain, rootItem) {
 })();
 
 /* ===============================
-   renderGraph (BBM forced to the column used by level 0)
-   - Finds the depth/column used by nodes with level === 0 and forces BBM there
-   - If no nodes have level === 0, does not force BBM to minDepth (avoids far-left)
-   - Keeps alphabetical ordering, anchor rules, and only draws far-left raw -> Smelter/BBM wires
+   renderGraph (force BBM into the bars/blocks column)
+   - Finds the depth used by canonical smelter outputs and forces BBM there
+   - BBM behaves like a smelter target: hide left anchor, show right anchor
+   - Draws only far-left raw -> Smelter or BBM lines
+   - Columns sorted alphabetically top->bottom
    =============================== */
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
@@ -346,38 +347,26 @@ function renderGraph(nodes, links, rootItem) {
   const isDark = isDarkMode();
 
   const BBM_ID = 'Basic Building Material';
+  const TARGET_SMELTER_OUTPUTS = ['Calcium Block', 'Titanium Bar', 'Wolfram Bar'];
 
-  // --- Determine the target depth/column for level 0 ---
-  // Find nodes that explicitly have level === 0
-  const level0Nodes = nodes.filter(n => n.level === 0);
-
-  // If there are level0 nodes, compute the depth column they occupy (use the most common depth among them)
-  let targetDepthForLevel0 = null;
-  if (level0Nodes.length > 0) {
+  // --- If any of the canonical smelter outputs exist, compute their column (depth) and force BBM there ---
+  const targetNodes = nodes.filter(n => TARGET_SMELTER_OUTPUTS.includes(n.id));
+  if (targetNodes.length > 0) {
+    // choose the most common depth among them (mode) to be robust
     const depthCounts = {};
-    for (const n of level0Nodes) {
-      if (typeof n.depth === 'number') {
-        depthCounts[n.depth] = (depthCounts[n.depth] || 0) + 1;
-      }
+    for (const n of targetNodes) {
+      if (typeof n.depth === 'number') depthCounts[n.depth] = (depthCounts[n.depth] || 0) + 1;
     }
     const depths = Object.keys(depthCounts).map(d => Number(d));
     if (depths.length > 0) {
-      // choose the depth with the highest count (mode)
       depths.sort((a, b) => depthCounts[b] - depthCounts[a]);
-      targetDepthForLevel0 = depths[0];
+      const chosenDepth = depths[0];
+      const bbmNode = nodes.find(n => n.id === BBM_ID || n.label === BBM_ID);
+      if (bbmNode) bbmNode.depth = chosenDepth;
     }
   }
 
-  // If we couldn't determine a target depth from level property, do NOT force BBM to minDepth.
-  // This prevents accidentally moving BBM to the far-left when you don't have level metadata.
-
-  // If targetDepthForLevel0 is found, force BBM into that depth
-  if (targetDepthForLevel0 !== null) {
-    const bbmNode = nodes.find(n => n.id === BBM_ID || n.label === BBM_ID);
-    if (bbmNode) bbmNode.depth = targetDepthForLevel0;
-  }
-
-  // --- Group nodes by depth (after optional BBM adjustment) ---
+  // --- Group nodes by depth ---
   const columns = {};
   for (const node of nodes) {
     if (!columns[node.depth]) columns[node.depth] = [];
