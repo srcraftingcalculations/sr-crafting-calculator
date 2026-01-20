@@ -37,7 +37,7 @@ header {
   width: 100%;
   height: 160px;
   background-image: url('data/SRCC_Banner_2.png');
-  background-position: center;
+  background-position: center 40%;
   background-size: cover;
   background-repeat: no-repeat;
   background-color: #1a0a05;
