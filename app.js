@@ -1,39 +1,15 @@
 // ===============================
-// app.js - Full updated script with pulsing interaction
+// app.js - Full application script (overhaul)
+// - Top->bottom layout retained from baseline
+// - Click a node to highlight its inputs (upstream ripple)
+// - Pointer-based drag threshold prevents accidental activation while panning
+// - Pulsing animations injected via JS (can be moved to style.css)
+// Paste this file as your app.js (no HTML/CSS changes required).
 // ===============================
 
-// ===============================
-// Load Recipes
-// ===============================
-async function loadRecipes() {
-  const url = "https://srcraftingcalculations.github.io/sr-crafting-calculator/data/recipes.json";
-  try {
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) throw new Error("Failed to fetch recipes.json");
-    return await response.json();
-  } catch (err) {
-    console.error("Error loading recipes:", err);
-    const out = document.getElementById("outputArea");
-    if (out) out.innerHTML = `<p style="color:red;">Error loading recipe data. Please try again later.</p>`;
-    return {};
-  }
-}
-
-let RECIPES = {};
-let TIERS = {};
-
-// ===============================
-// Utilities
-// ===============================
-function getTextColor(bg) {
-  if (!bg || bg[0] !== "#") return "#000000";
-  const r = parseInt(bg.substr(1, 2), 16);
-  const g = parseInt(bg.substr(3, 2), 16);
-  const b = parseInt(bg.substr(5, 2), 16);
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b);
-  return luminance > 150 ? "#000000" : "#ffffff";
-}
-
+/* ===============================
+   Configuration & Constants
+   =============================== */
 const MACHINE_COLORS = {
   "Smelter":      "#e67e22",
   "Furnace":      "#d63031",
@@ -51,15 +27,39 @@ const SPECIAL_EXTRACTORS = {
   "Sulphur Ore": 240
 };
 
-function getRecipe(name) {
-  return RECIPES[name] || null;
-}
+/* Graph tunables */
+const GRAPH_COL_WIDTH = 220;
+const GRAPH_ROW_HEIGHT = 120;
+const GRAPH_LABEL_OFFSET = 40;
+const GRAPH_CONTENT_PAD = 64;
 
-function computeRailsNeeded(inputRates, railSpeed) {
-  const total = Object.values(inputRates).reduce((sum, val) => sum + val, 0);
-  return railSpeed && railSpeed > 0 ? Math.ceil(total / railSpeed) : "—";
-}
+/* Interaction tuning */
+const DRAG_THRESHOLD_PX = 8;      // desktop threshold
+const TOUCH_THRESHOLD_PX = 12;    // touch threshold
+const PULSE_PROPAGATION_DEPTH = 1; // how many upstream levels to highlight
+const PULSE_STAGGER_MS = 90;      // stagger per edge for ripple effect
 
+/* Runtime toggles */
+let GRAPH_DEBUG = false;
+let GRAPH_FORCE_STRATEGY = null;
+
+/* ===============================
+   Utilities
+   =============================== */
+function escapeHtml(str) {
+  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function getTextColor(bg) {
+  if (!bg || bg[0] !== "#") return "#000000";
+  const r = parseInt(bg.substr(1, 2), 16);
+  const g = parseInt(bg.substr(3, 2), 16);
+  const b = parseInt(bg.substr(5, 2), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b);
+  return luminance > 150 ? "#000000" : "#ffffff";
+}
+function isDarkMode() {
+  return document.body.classList.contains('dark') || document.body.classList.contains('dark-mode');
+}
 function showToast(message) {
   const container = document.getElementById("toastContainer");
   if (!container) return;
@@ -71,12 +71,36 @@ function showToast(message) {
   setTimeout(() => {
     toast.classList.remove("show");
     setTimeout(() => toast.remove(), 300);
-  }, 2500);
+  }, 3000);
 }
 
-// ===============================
-// Expand production chain
-// ===============================
+/* ===============================
+   Data loading & recipe helpers
+   =============================== */
+let RECIPES = {};
+let TIERS = {};
+
+async function loadRecipes() {
+  const url = "https://srcraftingcalculations.github.io/sr-crafting-calculator/data/recipes.json";
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) throw new Error("Failed to fetch recipes.json");
+    return await response.json();
+  } catch (err) {
+    console.error("Error loading recipes:", err);
+    const out = document.getElementById("outputArea");
+    if (out) out.innerHTML = `<p style="color:red;">Error loading recipe data. Please try again later.</p>`;
+    return {};
+  }
+}
+
+function getRecipe(name) {
+  return RECIPES[name] || null;
+}
+
+/* ===============================
+   Expand production chain
+   =============================== */
 function expandChain(item, targetRate) {
   const chain = {};
   const machineTotals = {};
@@ -143,9 +167,9 @@ function expandChain(item, targetRate) {
   return { chain, machineTotals, extractorTotals };
 }
 
-// ===============================
-// Depths & graph data
-// ===============================
+/* ===============================
+   Depth computation & graph data
+   =============================== */
 function computeDepths(chain, rootItem) {
   const consumers = {};
   const depths = {};
@@ -224,12 +248,45 @@ function buildGraphData(chain, rootItem) {
   return { nodes, links };
 }
 
-// ===============================
-// Render graph (numbers centered) + pulsing attributes
-// ===============================
+/* ===============================
+   Inject pulsing CSS (once)
+   =============================== */
+(function injectPulseStyles() {
+  if (document.getElementById('graphPulseStyles')) return;
+  const style = document.createElement('style');
+  style.id = 'graphPulseStyles';
+  style.textContent = `
+    @keyframes nodePulse {
+      0% { stroke-width: 2; filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
+      50% { stroke-width: 6; filter: drop-shadow(0 0 10px rgba(255,200,50,0.9)); }
+      100% { stroke-width: 2; filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
+    }
+    @keyframes edgePulse {
+      0% { stroke-opacity: 0.6; stroke-width: 2; }
+      50% { stroke-opacity: 1; stroke-width: 4; }
+      100% { stroke-opacity: 0.6; stroke-width: 2; }
+    }
+    .pulse-origin { animation: nodePulse 900ms ease-in-out infinite; stroke: #ffd27a !important; }
+    .pulse-node { animation: nodePulse 900ms ease-in-out infinite; stroke: #ffcc66 !important; }
+    .pulse-edge { animation: edgePulse 900ms ease-in-out infinite; stroke: #ffcc66 !important; }
+    @media (prefers-reduced-motion: reduce) {
+      .pulse-origin, .pulse-node { animation: none !important; stroke-width: 4 !important; stroke: #ffd27a !important; }
+      .pulse-edge { animation: none !important; stroke-width: 3 !important; stroke: #ffcc66 !important; stroke-opacity: 1 !important; }
+    }
+    .graph-node-circle:focus { outline: none; stroke-width: 3; stroke: #88c0ff; }
+    .graph-edge, .graph-node-circle { vector-effect: non-scaling-stroke; }
+  `;
+  document.head.appendChild(style);
+})();
+
+/* ===============================
+   Render graph (top->bottom layout)
+   - nodes: circles with data-id
+   - edges: lines with data-from / data-to
+   =============================== */
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
-  const isDark = document.body.classList.contains("dark");
+  const isDark = isDarkMode();
 
   // Group nodes by depth
   const columns = {};
@@ -238,23 +295,17 @@ function renderGraph(nodes, links, rootItem) {
     columns[node.depth].push(node);
   }
 
-  // Spacing parameters (tweak if needed)
-  const colWidth = 220;
-  const rowHeight = 120;
-  const labelOffset = 40;
-  const contentPad = 64;
-
-  // Layout nodes
+  // Layout nodes (top -> bottom: depth -> y, index -> x)
   for (const [depth, colNodes] of Object.entries(columns)) {
     colNodes.sort((a, b) => {
       const aOut = links.filter(l => l.to === a.id).length;
       const bOut = links.filter(l => l.to === b.id).length;
-      return bOut - aOut;
+      if (bOut !== aOut) return bOut - aOut;
+      return (a.label || a.id).localeCompare(b.label || b.id);
     });
-
     colNodes.forEach((node, i) => {
-      node.x = depth * colWidth + 100;
-      node.y = i * rowHeight + 100;
+      node.y = Number(depth) * GRAPH_COL_WIDTH + 100;   // vertical spacing per depth
+      node.x = i * GRAPH_ROW_HEIGHT + 100;              // horizontal spacing per index
     });
   }
 
@@ -265,21 +316,19 @@ function renderGraph(nodes, links, rootItem) {
   const minY = nodes.length ? Math.min(...ys) : 0;
   const maxY = nodes.length ? Math.max(...ys) : 0;
 
-  // Content bbox with padding so panning doesn't clip nodes
-  const contentX = minX - nodeRadius - contentPad;
-  const contentY = minY - nodeRadius - contentPad;
-  const contentW = (maxX - minX) + (nodeRadius * 2) + contentPad * 2;
-  const contentH = (maxY - minY) + (nodeRadius * 2) + contentPad * 2;
+  const contentX = minX - nodeRadius - GRAPH_CONTENT_PAD;
+  const contentY = minY - nodeRadius - GRAPH_CONTENT_PAD;
+  const contentW = (maxX - minX) + (nodeRadius * 2) + GRAPH_CONTENT_PAD * 2;
+  const contentH = (maxY - minY) + (nodeRadius * 2) + GRAPH_CONTENT_PAD * 2;
 
   // Build inner SVG
   let inner = '';
 
-  // Lines with data attributes for pulsing
+  // Edges
   for (const link of links) {
     const from = nodes.find(n => n.id === link.from);
     const to = nodes.find(n => n.id === link.to);
     if (!from || !to) continue;
-
     inner += `
       <line class="graph-edge" data-from="${escapeHtml(from.id)}" data-to="${escapeHtml(to.id)}"
             x1="${from.x}" y1="${from.y}"
@@ -288,13 +337,12 @@ function renderGraph(nodes, links, rootItem) {
     `;
   }
 
-  // Nodes with data-id and focusable for keyboard
+  // Nodes
   for (const node of nodes) {
     const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
     const strokeColor = "#2c3e50";
     const textColor = getTextColor(fillColor);
-
-    const labelY = node.y - labelOffset;
+    const labelY = node.y - GRAPH_LABEL_OFFSET;
 
     inner += `
       <g class="graph-node" data-id="${escapeHtml(node.id)}">
@@ -308,10 +356,7 @@ function renderGraph(nodes, links, rootItem) {
         <circle class="graph-node-circle" data-id="${escapeHtml(node.id)}" cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
                 fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" tabindex="0" />
 
-        ${node.raw ? "" : (
-          `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20"
-                 fill="${fillColor}" rx="4" ry="4" />`
-        )}
+        ${node.raw ? "" : `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20" fill="${fillColor}" rx="4" ry="4" />`}
 
         <text class="nodeNumber" x="${node.x}" y="${node.y}"
               text-anchor="middle" font-size="13" font-weight="700"
@@ -342,186 +387,177 @@ function renderGraph(nodes, links, rootItem) {
       </div>
     </div>
   `;
-
   return svg;
 }
 
-// small helper to avoid injecting raw HTML from labels
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+/* ===============================
+   Highlighting (upstream ripple)
+   - exclusive mode: clears previous pulses
+   - uses data-from / data-to attributes on edges
+   =============================== */
+function clearPulses(svg) {
+  if (!svg) return;
+  svg.querySelectorAll('.pulse-origin, .pulse-node, .pulse-edge').forEach(el => {
+    el.classList.remove('pulse-origin', 'pulse-node', 'pulse-edge');
+  });
 }
 
-// ===============================
-// Reset button helper
-// ===============================
-function ensureResetButton() {
-  let btn = document.querySelector('.graphResetButton');
-  if (btn) return btn;
-  const container = document.getElementById('tableContainer') || document.body;
-  btn = document.createElement('div');
-  btn.className = 'graphResetButton';
-  btn.innerHTML = `<button id="resetViewBtn" type="button">Reset view</button>`;
-  container.appendChild(btn);
-  return btn;
+function highlightInputs(nodeId, svg, depth = PULSE_PROPAGATION_DEPTH) {
+  if (!svg || !nodeId) return;
+  clearPulses(svg);
+
+  // mark origin
+  const origin = svg.querySelector(`circle.graph-node-circle[data-id="${CSS.escape(nodeId)}"]`);
+  if (!origin) return;
+  origin.classList.add('pulse-origin');
+
+  // BFS upstream
+  const visited = new Set();
+  const queue = [{ id: nodeId, d: 0 }];
+
+  while (queue.length) {
+    const { id, d } = queue.shift();
+    if (visited.has(id)) continue;
+    visited.add(id);
+
+    const incoming = Array.from(svg.querySelectorAll(`line.graph-edge[data-to="${CSS.escape(id)}"]`));
+    incoming.forEach((edgeEl, idx) => {
+      const fromId = edgeEl.getAttribute('data-from');
+      const sourceCircle = svg.querySelector(`circle.graph-node-circle[data-id="${CSS.escape(fromId)}"]`);
+      const delay = d * PULSE_STAGGER_MS + idx * Math.max(20, PULSE_STAGGER_MS / 2);
+
+      // staggered application for ripple feel
+      setTimeout(() => {
+        edgeEl.classList.add('pulse-edge');
+      }, delay);
+
+      if (sourceCircle) {
+        setTimeout(() => {
+          if (!sourceCircle.classList.contains('pulse-origin')) sourceCircle.classList.add('pulse-node');
+        }, delay + 10);
+      }
+
+      if (d + 1 <= depth) queue.push({ id: fromId, d: d + 1 });
+    });
+  }
 }
 
-// ===============================
-// Inject pulsing CSS (once)
-// ===============================
-(function injectPulseStyles() {
-  if (document.getElementById('graphPulseStyles')) return;
-  const style = document.createElement('style');
-  style.id = 'graphPulseStyles';
-  style.textContent = `
-    @keyframes nodePulse {
-      0% { stroke-width: 2; filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
-      50% { stroke-width: 6; filter: drop-shadow(0 0 10px rgba(255,200,50,0.9)); }
-      100% { stroke-width: 2; filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
-    }
-    @keyframes edgePulse {
-      0% { stroke-opacity: 0.6; stroke-width: 2; }
-      50% { stroke-opacity: 1; stroke-width: 4; }
-      100% { stroke-opacity: 0.6; stroke-width: 2; }
-    }
-    .pulse-origin { animation: nodePulse 900ms ease-in-out infinite; stroke: #ffd27a !important; }
-    .pulse-node { animation: nodePulse 900ms ease-in-out infinite; stroke: #ffcc66 !important; }
-    .pulse-edge { animation: edgePulse 900ms ease-in-out infinite; stroke: #ffcc66 !important; }
-    /* Reduced motion fallback */
-    @media (prefers-reduced-motion: reduce) {
-      .pulse-origin, .pulse-node { animation: none !important; stroke-width: 4 !important; stroke: #ffd27a !important; }
-      .pulse-edge { animation: none !important; stroke-width: 3 !important; stroke: #ffcc66 !important; stroke-opacity: 1 !important; }
-    }
-    /* Make node circles keyboard-focus visible */
-    .graph-node-circle:focus { outline: none; stroke-width: 3; stroke: #88c0ff; }
-  `;
-  document.head.appendChild(style);
-})();
-
-// ===============================
-// Attach pulsing handlers after graph render
-// ===============================
-function attachPulseHandlers(wrapper) {
+/* ===============================
+   Pointer-based click-vs-drag handlers for node circles
+   - prevents accidental activation while panning
+   - uses pointer events (works for mouse/touch/stylus)
+   =============================== */
+function attachNodePointerHandlers(wrapper) {
   if (!wrapper) return;
   const svg = wrapper.querySelector('svg.graphSVG');
   if (!svg) return;
 
-  // Helper to clear all pulses
-  function clearPulses() {
-    svg.querySelectorAll('.pulse-origin').forEach(el => el.classList.remove('pulse-origin'));
-    svg.querySelectorAll('.pulse-node').forEach(el => el.classList.remove('pulse-node'));
-    svg.querySelectorAll('.pulse-edge').forEach(el => el.classList.remove('pulse-edge'));
-  }
+  // Build quick maps for convenience
+  const circles = Array.from(svg.querySelectorAll('circle.graph-node-circle[data-id]'));
 
-  // Find elements
-  const nodeCircles = Array.from(svg.querySelectorAll('circle.graph-node-circle[data-id]'));
-  const edges = Array.from(svg.querySelectorAll('line.graph-edge[data-from][data-to]'));
+  circles.forEach(circle => {
+    let startX = null;
+    let startY = null;
+    let isDragging = false;
+    let pointerId = null;
 
-  // Build quick maps
-  const circleById = {};
-  nodeCircles.forEach(c => circleById[c.getAttribute('data-id')] = c);
+    function getThreshold(ev) {
+      return (ev && ev.pointerType === 'touch') ? TOUCH_THRESHOLD_PX : DRAG_THRESHOLD_PX;
+    }
 
-  const incomingMap = {}; // targetId -> [edgeElement,...]
-  edges.forEach(e => {
-    const to = e.getAttribute('data-to');
-    if (!incomingMap[to]) incomingMap[to] = [];
-    incomingMap[to].push(e);
+    function onPointerDown(ev) {
+      // Prevent global pan from starting when pointer is on a node:
+      // do not call setPointerCapture on the svg pan handler for this pointer.
+      try { circle.setPointerCapture(ev.pointerId); } catch (e) {}
+      pointerId = ev.pointerId;
+      startX = ev.clientX;
+      startY = ev.clientY;
+      isDragging = false;
+      // stop propagation so global handlers can check target if needed
+      ev.stopPropagation();
+    }
+
+    function onPointerMove(ev) {
+      if (pointerId === null || ev.pointerId !== pointerId) return;
+      if (startX === null) return;
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!isDragging && Math.hypot(dx, dy) > getThreshold(ev)) {
+        isDragging = true;
+      }
+    }
+
+    function onPointerUp(ev) {
+      if (pointerId === null || ev.pointerId !== pointerId) return;
+      try { circle.releasePointerCapture(ev.pointerId); } catch (e) {}
+      if (!isDragging) {
+        // confirmed click — highlight upstream inputs
+        const nodeId = circle.getAttribute('data-id');
+        highlightInputs(nodeId, svg, PULSE_PROPAGATION_DEPTH);
+      }
+      // reset
+      startX = startY = null;
+      isDragging = false;
+      pointerId = null;
+      ev.stopPropagation();
+    }
+
+    // Remove previous listeners to avoid duplicates
+    circle.removeEventListener('pointerdown', onPointerDown);
+    circle.removeEventListener('pointermove', onPointerMove);
+    circle.removeEventListener('pointerup', onPointerUp);
+
+    circle.addEventListener('pointerdown', onPointerDown);
+    circle.addEventListener('pointermove', onPointerMove);
+    circle.addEventListener('pointerup', onPointerUp);
+
+    // Keyboard support
+    circle.setAttribute('tabindex', '0');
+    circle.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        const nodeId = circle.getAttribute('data-id');
+        highlightInputs(nodeId, svg, PULSE_PROPAGATION_DEPTH);
+      }
+    });
   });
 
-  // Propagation depth (1 = immediate inputs). You can increase if desired.
-  const PROPAGATION_DEPTH = 1;
-  const STAGGER_MS = 90;
-
-  // Click handler
-  function onNodeActivate(evt) {
-    const target = evt.currentTarget;
-    const nodeId = target.getAttribute('data-id');
-    if (!nodeId) return;
-
-    // If this node is already origin, toggle off
-    if (target.classList.contains('pulse-origin')) {
-      clearPulses();
-      return;
-    }
-
-    clearPulses();
-
-    // Mark origin
-    target.classList.add('pulse-origin');
-
-    // BFS upstream to PROPAGATION_DEPTH
-    const visited = new Set();
-    const queue = [{ id: nodeId, depth: 0 }];
-
-    while (queue.length) {
-      const { id, depth } = queue.shift();
-      if (visited.has(id)) continue;
-      visited.add(id);
-
-      const incoming = incomingMap[id] || [];
-      incoming.forEach((edgeEl, idx) => {
-        // stagger animation slightly per edge
-        const fromId = edgeEl.getAttribute('data-from');
-        const sourceCircle = circleById[fromId];
-        const delay = depth * STAGGER_MS + idx * Math.max(20, STAGGER_MS / 2);
-
-        // edge pulse
-        setTimeout(() => {
-          edgeEl.classList.add('pulse-edge');
-        }, delay);
-
-        // source node pulse (weaker than origin)
-        if (sourceCircle) {
-          setTimeout(() => {
-            // don't override origin if it becomes part of propagation
-            if (!sourceCircle.classList.contains('pulse-origin')) sourceCircle.classList.add('pulse-node');
-          }, delay + 10);
-        }
-
-        // enqueue upstream if depth allows
-        if (depth + 1 <= PROPAGATION_DEPTH) {
-          queue.push({ id: fromId, depth: depth + 1 });
-        }
-      });
-    }
-  }
-
-  // Keyboard handler (Enter/Space)
-  function onNodeKey(evt) {
-    if (evt.key === 'Enter' || evt.key === ' ') {
-      evt.preventDefault();
-      evt.currentTarget.click();
-    }
-  }
-
-  // Attach listeners
-  nodeCircles.forEach(c => {
-    // remove previous listeners to avoid duplicates
-    c.removeEventListener('click', onNodeActivate);
-    c.removeEventListener('keydown', onNodeKey);
-    c.addEventListener('click', onNodeActivate);
-    c.addEventListener('keydown', onNodeKey);
-  });
-
-  // Clicking outside the graph clears pulses
+  // Clicking outside the SVG clears pulses
   function onDocClick(e) {
-    if (!svg.contains(e.target)) clearPulses();
+    if (!svg.contains(e.target)) clearPulses(svg);
   }
   document.removeEventListener('click', onDocClick);
   document.addEventListener('click', onDocClick);
 }
 
-// ===============================
-// Zoom / pan setup (wheel + drag + reset)
-// ===============================
+/* ===============================
+   Prevent global pan start when pointer is on a node
+   - call this in your global pan start handler or use as guard
+   =============================== */
+function pointerIsOnNode(ev) {
+  return !!(ev.target && ev.target.closest && ev.target.closest('.graph-node, .graph-node-circle'));
+}
+
+/* ===============================
+   Zoom / pan utilities
+   (keeps behavior from earlier app)
+   =============================== */
+function ensureResetButton() {
+  let btn = document.querySelector('.graphResetButton');
+  if (btn) return btn;
+  btn = document.createElement('div');
+  btn.className = 'graphResetButton';
+  btn.innerHTML = `<button id="resetViewBtn" type="button">Reset view</button>`;
+  const tableContainer = document.getElementById('tableContainer') || document.body;
+  tableContainer.appendChild(btn);
+  return btn;
+}
+
 function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = {}) {
   if (!containerEl) return;
 
   const svg = containerEl.querySelector('svg.graphSVG');
   const zoomLayer = svg.querySelector('#zoomLayer');
-
   const resetBtn = resetButtonEl || document.querySelector('#resetViewBtn');
 
   let scale = 1;
@@ -530,6 +566,7 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
   let isPanning = false;
   let startX = 0;
   let startY = 0;
+  let activePointerId = null;
 
   function getContentBBox() {
     const vb = svg.viewBox.baseVal;
@@ -619,17 +656,21 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     zoomAt(newScale, ev.clientX, ev.clientY);
   }, { passive: false });
 
-  // Pan (left click)
-  svg.addEventListener('mousedown', (ev) => {
+  // Pointer-based pan start (guarded by pointerIsOnNode)
+  svg.addEventListener('pointerdown', (ev) => {
+    // If pointer is on a node, do not start pan here (node handlers will manage)
+    if (pointerIsOnNode(ev)) return;
     if (ev.button !== 0) return;
     isPanning = true;
+    activePointerId = ev.pointerId;
     startX = ev.clientX;
     startY = ev.clientY;
+    svg.setPointerCapture?.(ev.pointerId);
     svg.style.cursor = 'grabbing';
   });
 
-  window.addEventListener('mousemove', (ev) => {
-    if (!isPanning) return;
+  window.addEventListener('pointermove', (ev) => {
+    if (!isPanning || ev.pointerId !== activePointerId) return;
     const dxScreen = ev.clientX - startX;
     const dyScreen = ev.clientY - startY;
     startX = ev.clientX;
@@ -647,63 +688,15 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     applyTransform();
   });
 
-  window.addEventListener('mouseup', () => {
-    if (!isPanning) return;
+  window.addEventListener('pointerup', (ev) => {
+    if (!isPanning || ev.pointerId !== activePointerId) return;
     isPanning = false;
+    activePointerId = null;
+    try { svg.releasePointerCapture(ev.pointerId); } catch (e) {}
     svg.style.cursor = 'grab';
   });
 
-  // Touch handlers (pinch + pan)
-  let lastTouchDist = null;
-  let lastTouchCenter = null;
-
-  svg.addEventListener('touchstart', (ev) => {
-    if (ev.touches.length === 2) {
-      ev.preventDefault();
-      const t0 = ev.touches[0], t1 = ev.touches[1];
-      lastTouchDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
-      lastTouchCenter = { x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 };
-    } else if (ev.touches.length === 1) {
-      startX = ev.touches[0].clientX;
-      startY = ev.touches[0].clientY;
-      isPanning = true;
-    }
-  }, { passive: false });
-
-  svg.addEventListener('touchmove', (ev) => {
-    if (ev.touches.length === 2 && lastTouchDist !== null) {
-      ev.preventDefault();
-      const t0 = ev.touches[0], t1 = ev.touches[1];
-      const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
-      const center = { x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 };
-      const factor = dist / lastTouchDist;
-      const newScale = Math.min(3, Math.max(0.25, +(scale * factor).toFixed(3)));
-      zoomAt(newScale, center.x, center.y);
-      lastTouchDist = dist;
-      lastTouchCenter = center;
-    } else if (ev.touches.length === 1 && isPanning) {
-      ev.preventDefault();
-      const dx = ev.touches[0].clientX - startX;
-      const dy = ev.touches[0].clientY - startY;
-      startX = ev.touches[0].clientX;
-      startY = ev.touches[0].clientY;
-
-      const p0 = svg.createSVGPoint(); p0.x = 0; p0.y = 0;
-      const p1 = svg.createSVGPoint(); p1.x = dx; p1.y = dy;
-      const svg0 = p0.matrixTransform(svg.getScreenCTM().inverse());
-      const svg1 = p1.matrixTransform(svg.getScreenCTM().inverse());
-      tx += svg1.x - svg0.x;
-      ty += svg1.y - svg0.y;
-      applyTransform();
-    }
-  }, { passive: false });
-
-  svg.addEventListener('touchend', () => {
-    lastTouchDist = null;
-    lastTouchCenter = null;
-    isPanning = false;
-  });
-
+  // Touch pinch/zoom handled via wheel or separate handlers if needed
   svg.style.cursor = 'grab';
 
   function computeAutoFit() {
@@ -738,14 +731,21 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
   if (autoFit) requestAnimationFrame(() => computeAutoFit());
   else applyTransform();
 
-  containerEl._teardownGraphZoom = () => {
-    // no-op cleanup placeholder (listeners are global; if you re-render often you may want to remove them)
-  };
+  containerEl._teardownGraphZoom = () => { /* no-op */ };
+
+  function getContentBBox() {
+    try { return zoomLayer.getBBox(); } catch (e) { return { x: 0, y: 0, width: svg.clientWidth, height: svg.clientHeight }; }
+  }
 }
 
-// ===============================
-// Render table + graph
-// ===============================
+/* ===============================
+   Render table + graph
+   =============================== */
+function computeRailsNeeded(inputRates, railSpeed) {
+  const total = Object.values(inputRates).reduce((sum, val) => sum + val, 0);
+  return railSpeed && railSpeed > 0 ? Math.ceil(total / railSpeed) : "—";
+}
+
 function renderTable(chainObj, rootItem, rate) {
   const { chain, machineTotals, extractorTotals } = chainObj;
   const { nodes, links } = buildGraphData(chain, rootItem);
@@ -759,16 +759,14 @@ function renderTable(chainObj, rootItem, rate) {
     try { prevWrapper._teardownGraphZoom(); } catch (e) { /* ignore */ }
   }
 
-  // Ensure reset button exists
   ensureResetButton();
-
   graphArea.innerHTML = graphHTML;
   const wrapper = graphArea.querySelector(".graphWrapper");
   const resetBtn = document.querySelector('#resetViewBtn');
   setupGraphZoom(wrapper, { autoFit: true, resetButtonEl: resetBtn });
 
-  // Attach pulsing handlers to the freshly rendered graph
-  attachPulseHandlers(wrapper);
+  // Attach pointer handlers and pulsing behavior
+  attachNodePointerHandlers(wrapper);
 
   const railSpeed = parseInt(document.getElementById("railSelect").value) || 0;
 
@@ -873,9 +871,9 @@ function renderTable(chainObj, rootItem, rate) {
   if (out) out.innerHTML = html;
 }
 
-// ===============================
-// Run calculator
-// ===============================
+/* ===============================
+   Run calculator & UI wiring
+   =============================== */
 function runCalculator() {
   const item = document.getElementById('itemSelect').value;
   const rateRaw = document.getElementById('rateInput').value;
@@ -894,9 +892,6 @@ function runCalculator() {
   history.replaceState(null, "", "?" + params.toString());
 }
 
-// ===============================
-// Dark mode toggle
-// ===============================
 function setupDarkMode() {
   const toggle = document.getElementById("darkModeToggle");
   if (!toggle) return;
@@ -914,9 +909,9 @@ function setupDarkMode() {
   });
 }
 
-// ===============================
-// Initialization
-// ===============================
+/* ===============================
+   Initialization
+   =============================== */
 async function init() {
   setupDarkMode();
   const data = await loadRecipes();
@@ -930,7 +925,6 @@ async function init() {
 
   if (itemSelect) itemSelect.innerHTML = `<option value="" disabled selected>Select Item Here</option>`;
   if (railSelect) railSelect.innerHTML = `
-    <option value="" disabled selected>Select Rail</option>
     <option value="120">v1 (120/min)</option>
     <option value="240">v2 (240/min)</option>
     <option value="480">v3 (480/min)</option>
