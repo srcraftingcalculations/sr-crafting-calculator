@@ -1,41 +1,52 @@
-// ===============================
-// app.js - Full updated script (final fixes)
-// - Clicking anywhere in a node highlights only its immediate inputs
-// - Clicking the same node again clears pulses (toggle off)
-// - Prevents the black focus box by inline styles and pointer-events on children
-// - Drag threshold prevents accidental activation while panning
-// - Left->right layout retained
-// ===============================
+/* app.js
+   Minimal, self-contained graph renderer that:
+   - removes left helper dots for raw nodes
+   - draws direct lines from raw nodes on the far-left to their consumer (smelter)
+   - includes a small demo dataset so you can verify the line is visible
+*/
 
 /* ===============================
-   Configuration & Constants
+   Simple styling hook (optional runtime)
+   =============================== */
+(function injectDemoStyles() {
+  if (document.getElementById('demoGraphStyles')) return;
+  const s = document.createElement('style');
+  s.id = 'demoGraphStyles';
+  s.textContent = `
+    .graphWrapper { width: 100%; height: 520px; box-sizing: border-box; background: #fafafa; border: 1px solid #e6e6e6; overflow: hidden; }
+    .graphViewport { width: 100%; height: 100%; }
+    svg.graphSVG { width: 100%; height: 100%; display: block; }
+    .graph-node { cursor: pointer; }
+    .graph-node-circle { transition: transform .12s ease; }
+    .graph-node:hover .graph-node-circle { transform: scale(1.03); }
+    .anchor-dot { transition: opacity .12s ease; }
+    .anchor-dot.anchor-hidden { opacity: 0; }
+    .anchor-dot.anchor-hover { stroke-width: 2.2; r: 6; }
+    .graph-edge { stroke: #666; stroke-width: 2; stroke-linecap: round; opacity: 0.95; }
+    .spine-placeholder rect { fill: rgba(0,0,0,0.02); stroke: rgba(0,0,0,0.06); }
+    .nodeLabel { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
+  `;
+  document.head.appendChild(s);
+})();
+
+/* ===============================
+   Constants
    =============================== */
 const MACHINE_COLORS = {
-  "Smelter":      "#e67e22",
-  "Furnace":      "#d63031",
-  "Fabricator":   "#0984e3",
-  "Mega Press":   "#6c5ce7",
-  "Assembler":    "#00b894",
-  "Refinery":     "#e84393",
-  "Compounder":   "#00cec9",
-  "Pyro Forge":   "#a55eea"
-};
-
-const SPECIAL_EXTRACTORS = {
-  "Helium-3": 240,
-  "Goethite Ore": 400,
-  "Sulphur Ore": 240
+  "Smelter": "#e67e22",
+  "Furnace": "#d63031",
+  "Fabricator": "#0984e3",
+  "Mega Press": "#6c5ce7",
+  "Assembler": "#00b894",
+  "Refinery": "#e84393",
+  "Compounder": "#00cec9",
+  "Pyro Forge": "#a55eea"
 };
 
 const GRAPH_COL_WIDTH = 220;
 const GRAPH_ROW_HEIGHT = 120;
 const GRAPH_LABEL_OFFSET = 40;
 const GRAPH_CONTENT_PAD = 64;
-
-const DRAG_THRESHOLD_PX = 8;      // desktop threshold
-const TOUCH_THRESHOLD_PX = 12;    // touch threshold
-const PULSE_PROPAGATION_DEPTH = 1; // immediate inputs only
-const PULSE_STAGGER_MS = 90;      // kept for timing if needed
 
 /* ===============================
    Utilities
@@ -54,231 +65,62 @@ function getTextColor(bg) {
 function isDarkMode() {
   return document.body.classList.contains('dark') || document.body.classList.contains('dark-mode');
 }
-function showToast(message) {
-  const container = document.getElementById("toastContainer");
-  if (!container) return;
-  const toast = document.createElement("div");
-  toast.className = "toast";
-  toast.textContent = message;
-  container.appendChild(toast);
-  requestAnimationFrame(() => toast.classList.add("show"));
-  setTimeout(() => {
-    toast.classList.remove("show");
-    setTimeout(() => toast.remove(), 300);
-  }, 2500);
-}
-
-// Info bubble behavior
-(function () {
-  const infoBtn = document.getElementById('infoButton');
-  const infoPanel = document.getElementById('infoPanel');
-  const infoClose = document.getElementById('infoClose');
-  const itemSelect = document.getElementById('itemSelect');
-
-  if (!infoBtn || !infoPanel) return;
-
-  function openPanel() {
-    // Position panel to the left of the item select (or fallback near the button)
-    const btnRect = infoBtn.getBoundingClientRect();
-    const containerRect = document.getElementById('tableContainer')?.getBoundingClientRect() || document.body.getBoundingClientRect();
-
-    // Prefer placing panel below the controls and aligned with the button
-    infoPanel.style.top = (window.scrollY + btnRect.bottom + 8) + 'px';
-    infoPanel.style.left = (window.scrollX + btnRect.left) + 'px';
-
-    infoPanel.classList.add('open');
-    infoPanel.setAttribute('aria-hidden', 'false');
-    infoBtn.setAttribute('aria-expanded', 'true');
-
-    // Move focus into panel for accessibility
-    infoClose.focus();
-  }
-
-  function closePanel() {
-    infoPanel.classList.remove('open');
-    infoPanel.setAttribute('aria-hidden', 'true');
-    infoBtn.setAttribute('aria-expanded', 'false');
-    infoBtn.focus();
-  }
-
-  infoBtn.addEventListener('click', function (e) {
-    const expanded = infoBtn.getAttribute('aria-expanded') === 'true';
-    if (expanded) closePanel(); else openPanel();
-  });
-
-  infoClose.addEventListener('click', closePanel);
-
-  // Close on outside click
-  document.addEventListener('click', function (e) {
-    if (!infoPanel.classList.contains('open')) return;
-    if (infoPanel.contains(e.target) || infoBtn.contains(e.target)) return;
-    closePanel();
-  });
-
-  // Close on Escape
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && infoPanel.classList.contains('open')) closePanel();
-  });
-
-  // Reposition on resize/scroll for robustness
-  window.addEventListener('resize', function () {
-    if (infoPanel.classList.contains('open')) openPanel();
-  });
-  window.addEventListener('scroll', function () {
-    if (infoPanel.classList.contains('open')) openPanel();
-  });
-})();
 
 /* ===============================
-   Data loading & recipe helpers
+   Demo data (ensures Titanium Ore -> Titanium Bar line is visible)
+   - links are consumer -> input (consumer consumes input)
    =============================== */
-let RECIPES = {};
-let TIERS = {};
-
-async function loadRecipes() {
-  const url = "https://srcraftingcalculations.github.io/sr-crafting-calculator/data/recipes.json";
-  try {
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) throw new Error("Failed to fetch recipes.json");
-    return await response.json();
-  } catch (err) {
-    console.error("Error loading recipes:", err);
-    const out = document.getElementById("outputArea");
-    if (out) out.innerHTML = `<p style="color:red;">Error loading recipe data. Please try again later.</p>`;
-    return {};
-  }
-}
-
-function getRecipe(name) {
-  return RECIPES[name] || null;
+function demoChain() {
+  // chain object similar to expandChain output
+  // keys: item name -> { raw: boolean, building: string, machines: number, inputs: { name: rate } }
+  return {
+    "Titanium Bar": { raw: false, building: "Smelter", machines: 1, inputs: { "Titanium Ore": 60 } },
+    "Titanium Ore": { raw: true, building: "RAW", machines: 0, inputs: {} },
+    "Wolfram Ore": { raw: true, building: "RAW", machines: 0, inputs: {} },
+    "Wolfram Bar": { raw: false, building: "Smelter", machines: 1, inputs: { "Wolfram Ore": 60 } }
+  };
 }
 
 /* ===============================
-   Expand production chain
-   =============================== */
-function expandChain(item, targetRate) {
-  const chain = {};
-  const machineTotals = {};
-  const extractorTotals = {};
-  const pending = {};
-  const processed = {};
-  const queue = [];
-
-  function trackExtractor(name, rate) {
-    extractorTotals[name] = (extractorTotals[name] || 0) + rate;
-  }
-
-  function enqueue(name, rate) {
-    const recipe = getRecipe(name);
-    if (!recipe) {
-      trackExtractor(name, rate);
-      if (!chain[name]) {
-        chain[name] = { rate, raw: true, building: "RAW", machines: 0, inputs: {} };
-      } else {
-        chain[name].rate += rate;
-      }
-      return;
-    }
-    pending[name] = (pending[name] || 0) + rate;
-    if (!processed[name]) queue.push(name);
-  }
-
-  enqueue(item, targetRate);
-
-  while (queue.length > 0) {
-    queue.sort((a, b) => (TIERS[b] ?? 0) - (TIERS[a] ?? 0));
-    const current = queue.shift();
-    if (processed[current]) continue;
-    processed[current] = true;
-
-    const rate = pending[current];
-    const recipe = getRecipe(current);
-    if (!recipe) {
-      trackExtractor(current, rate);
-      continue;
-    }
-
-    const craftsPerMin = rate / recipe.output;
-    const outputPerMinPerMachine = (recipe.output * 60) / recipe.time;
-    const machines = Math.ceil(rate / outputPerMinPerMachine);
-
-    chain[current] = {
-      rate,
-      raw: false,
-      building: recipe.building,
-      machines,
-      inputs: {}
-    };
-
-    machineTotals[recipe.building] = (machineTotals[recipe.building] || 0) + machines;
-
-    for (const [input, qty] of Object.entries(recipe.inputs)) {
-      const inputRate = craftsPerMin * qty;
-      chain[current].inputs[input] = inputRate;
-      enqueue(input, inputRate);
-    }
-  }
-
-  return { chain, machineTotals, extractorTotals };
-}
-
-/* ===============================
-   Depth computation & graph data
+   Depth computation (simple)
    =============================== */
 function computeDepths(chain, rootItem) {
-  const consumers = {};
+  // For demo: place raw items at depth 0, their consumers at depth 1, others incrementally
   const depths = {};
-
-  for (const [item, data] of Object.entries(chain)) {
-    for (const input of Object.keys(data.inputs || {})) {
-      if (!consumers[input]) consumers[input] = [];
-      consumers[input].push(item);
-    }
+  // initialize raw items to 0
+  for (const [k, v] of Object.entries(chain)) {
+    if (v.raw) depths[k] = 0;
   }
-
-  depths[rootItem] = 999;
-
+  // simple BFS-ish: any node that consumes a raw becomes depth 1
   let changed = true;
   while (changed) {
     changed = false;
-    for (const item of Object.keys(chain)) {
-      const cons = consumers[item];
-      if (!cons || cons.length === 0) continue;
-      const minConsumerDepth = Math.min(...cons.map(c => depths[c] ?? 999));
-      const newDepth = minConsumerDepth - 1;
-      if (depths[item] !== newDepth) {
-        depths[item] = newDepth;
+    for (const [item, data] of Object.entries(chain)) {
+      if (depths[item] !== undefined) continue;
+      const inputs = Object.keys(data.inputs || {});
+      if (inputs.length === 0) {
+        depths[item] = 1;
+        changed = true;
+        continue;
+      }
+      const inputDepths = inputs.map(i => depths[i] ?? null).filter(d => d !== null);
+      if (inputDepths.length === inputs.length) {
+        depths[item] = Math.max(...inputDepths) + 1;
         changed = true;
       }
     }
   }
-
-  let adjusted = true;
-  while (adjusted) {
-    adjusted = false;
-    for (const [item, data] of Object.entries(chain)) {
-      const itemDepth = depths[item] ?? 0;
-      for (const input of Object.keys(data.inputs || {})) {
-        const inputDepth = depths[input] ?? 0;
-        if (inputDepth >= itemDepth) {
-          depths[input] = itemDepth - 1;
-          adjusted = true;
-        }
-      }
-    }
-  }
-
+  // normalize so min depth is 0
   const minDepth = Math.min(...Object.values(depths));
-  for (const item of Object.keys(depths)) depths[item] -= minDepth;
+  for (const k of Object.keys(depths)) depths[k] -= minDepth;
   return depths;
 }
 
 /* ===============================
-   Fixed: buildGraphData (with special raw->smelter anchor rules)
-   - All anchor logic runs inside the function so it has access to `chain` and `nodes`
+   Build nodes + links from chain
    =============================== */
-function buildGraphData(chain, rootItem) {
-  const depths = computeDepths(chain, rootItem);
+function buildGraphData(chain) {
+  const depths = computeDepths(chain);
   const nodes = [];
   const links = [];
   const nodeMap = new Map();
@@ -293,54 +135,27 @@ function buildGraphData(chain, rootItem) {
       building: data.building,
       machines: data.machines,
       inputs: data.inputs,
-      // anchor flags (set later after we know maxDepth)
-      hasInputAnchor: true,
-      hasOutputAnchor: true
+      hasInputAnchor: !data.raw, // raw items: no left anchor
+      hasOutputAnchor: true      // raw and non-raw both show right anchor for demo
     };
     nodes.push(node);
     nodeMap.set(item, node);
   }
 
-  // links (consumer -> input)
+  // links: consumer -> input
   for (const [item, data] of Object.entries(chain)) {
     for (const input of Object.keys(data.inputs || {})) {
       if (nodeMap.has(input)) links.push({ from: item, to: input });
     }
   }
 
-  // Determine anchor rules:
-  // - Raw nodes (no recipe) have no left/input anchor
-  // - Nodes at maximum depth (furthest from root) have no right/output anchor
-  const maxDepth = nodes.length ? Math.max(...nodes.map(n => n.depth)) : 0;
+  // Special rule: if a smelter consumes only raw inputs, hide its left anchor so wire connects to body
   for (const node of nodes) {
-    node.hasInputAnchor = !node.raw;                // raw resources: no left anchor by default
-    node.hasOutputAnchor = (node.depth < maxDepth); // final outputs: no right anchor
-  }
-
-  // --- special anchor rules for raw -> smelter direct connections ---
-  // Helper to check if an item in the chain is a raw extractor
-  function isExtractorItem(itemName) {
-    const entry = chain[itemName];
-    return !!(entry && entry.raw);
-  }
-
-  for (const node of nodes) {
-    // Ensure raw sources always expose an output anchor (they produce something)
-    if (node.raw) {
-      node.hasInputAnchor = false;
-      node.hasOutputAnchor = true;
-    }
-
-    // Special case: smelters that only consume raw resources
-    // If this node's building is "Smelter" and every input is a raw extractor,
-    // hide the left anchor so the raw node can connect directly to the smelter body.
     if (node.building === 'Smelter') {
       const inputNames = Object.keys(node.inputs || {});
-      if (inputNames.length > 0 && inputNames.every(inName => isExtractorItem(inName))) {
+      if (inputNames.length > 0 && inputNames.every(n => chain[n] && chain[n].raw)) {
         node.hasInputAnchor = false;
       }
-      // ensure smelter still exposes its output anchor so it can feed rails
-      node.hasOutputAnchor = true;
     }
   }
 
@@ -348,15 +163,12 @@ function buildGraphData(chain, rootItem) {
 }
 
 /* ===============================
-   renderGraph (raw-left direct wires to smelter bodies — complete)
-   - Draws direct wires from raw sources on the far-left column to their consumers
-   - Uses link.to as the raw source and link.from as the consumer (consumer -> input)
-   - Connects to node center when the target has no left anchor (e.g., smelter with no input anchor)
+   Render graph (nodes + raw-left direct wires)
    =============================== */
-function renderGraph(nodes, links, rootItem) {
+function renderGraph(nodes, links) {
   const nodeRadius = 22;
   const anchorRadius = 5;
-  const anchorHitRadius = 12; // invisible hit area
+  const anchorHitRadius = 12;
   const isDark = isDarkMode();
 
   // Group nodes by depth
@@ -366,21 +178,16 @@ function renderGraph(nodes, links, rootItem) {
     columns[node.depth].push(node);
   }
 
-  // Layout nodes (left -> right: depth -> x, index -> y)
+  // Layout nodes
   for (const [depth, colNodes] of Object.entries(columns)) {
-    colNodes.sort((a, b) => {
-      const aOut = links.filter(l => l.to === a.id).length;
-      const bOut = links.filter(l => l.to === b.id).length;
-      if (bOut !== aOut) return bOut - aOut;
-      return (a.label || a.id).localeCompare(b.label || b.id);
-    });
+    colNodes.sort((a, b) => (a.label || '').localeCompare(b.label || ''));
     colNodes.forEach((node, i) => {
       node.x = Number(depth) * GRAPH_COL_WIDTH + 100;
       node.y = i * GRAPH_ROW_HEIGHT + 100;
     });
   }
 
-  // Compute content bounds
+  // Bounds
   const xs = nodes.map(n => n.x);
   const ys = nodes.map(n => n.y);
   const minX = nodes.length ? Math.min(...xs) : 0;
@@ -393,13 +200,12 @@ function renderGraph(nodes, links, rootItem) {
   const contentW = (maxX - minX) + (nodeRadius * 2) + GRAPH_CONTENT_PAD * 2;
   const contentH = (maxY - minY) + (nodeRadius * 2) + GRAPH_CONTENT_PAD * 2;
 
-  // Build inner SVG
   let inner = '';
 
-  // Spine placeholders (one per depth column) - faint vertical guide and helper placeholder area
+  // Spine placeholders (visual only)
   for (const depthKey of Object.keys(columns)) {
     const depth = Number(depthKey);
-    const spineX = depth * GRAPH_COL_WIDTH + 100 + nodeRadius + 36; // slightly right of nodes
+    const spineX = depth * GRAPH_COL_WIDTH + 100 + nodeRadius + 36;
     const topY = minY - GRAPH_ROW_HEIGHT;
     const bottomY = maxY + GRAPH_ROW_HEIGHT;
     inner += `
@@ -412,23 +218,18 @@ function renderGraph(nodes, links, rootItem) {
     `;
   }
 
-  // --- Edges: draw direct node-to-node wires for raw sources on the far left ---
+  // Draw direct wires for raw sources on the far-left
   const minDepth = nodes.length ? Math.min(...nodes.map(n => n.depth)) : 0;
   for (const link of links) {
-    // In your data links are consumer -> input, so:
-    // rawSource = link.to, consumer = link.from
+    // links are consumer -> input
     const rawSource = nodes.find(n => n.id === link.to);
     const consumer = nodes.find(n => n.id === link.from);
     if (!rawSource || !consumer) continue;
 
-    // Only draw if the source is a raw extractor and is displayed on the far left
     if (!(rawSource.raw && rawSource.depth === minDepth)) continue;
 
-    // Compute start point: prefer right anchor position if present, otherwise node center
     const startX = rawSource.hasOutputAnchor ? (rawSource.x + nodeRadius + 10) : rawSource.x;
     const startY = rawSource.y;
-
-    // Compute end point: prefer left anchor position if present; otherwise connect to consumer center
     const endX = consumer.hasInputAnchor ? (consumer.x - nodeRadius - 10) : consumer.x;
     const endY = consumer.y;
 
@@ -436,7 +237,7 @@ function renderGraph(nodes, links, rootItem) {
       <line class="graph-edge" data-from="${escapeHtml(rawSource.id)}" data-to="${escapeHtml(consumer.id)}"
             x1="${startX}" y1="${startY}"
             x2="${endX}" y2="${endY}"
-            stroke="#999" stroke-width="2" stroke-linecap="round" />
+            stroke="#2f2f2f" stroke-width="2.6" stroke-linecap="round" />
     `;
   }
 
@@ -451,22 +252,23 @@ function renderGraph(nodes, links, rootItem) {
       <g class="graph-node" data-id="${escapeHtml(node.id)}" tabindex="0" role="button" aria-label="${escapeHtml(node.label)}" style="outline:none;">
         <text class="nodeLabel" x="${node.x}" y="${labelY}"
               text-anchor="middle" font-size="13" font-weight="700"
-              fill="${textColor}"
-              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke"
-              pointer-events="none">
+              fill="${textColor}" stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke" pointer-events="none">
           ${escapeHtml(node.label)}
         </text>
 
         <circle class="graph-node-circle" data-id="${escapeHtml(node.id)}" cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
                 fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" />
+    `;
 
-        ${node.raw ? "" : `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20" fill="${fillColor}" rx="4" ry="4" pointer-events="none" />`}
+    // small rectangle for non-raw nodes (visual)
+    if (!node.raw) {
+      inner += `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20" fill="${fillColor}" rx="4" ry="4" pointer-events="none" />`;
+    }
 
+    inner += `
         <text class="nodeNumber" x="${node.x}" y="${node.y}"
               text-anchor="middle" font-size="13" font-weight="700"
-              fill="${textColor}"
-              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke"
-              pointer-events="none">
+              fill="${textColor}" stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke" pointer-events="none">
           ${node.raw ? "" : Math.ceil(node.machines)}
         </text>
     `;
@@ -483,10 +285,11 @@ function renderGraph(nodes, links, rootItem) {
       `;
     }
 
-    // Right output anchor (if present)
+    // Right output anchor (if present) - raw nodes keep right anchor visible
     if (node.hasOutputAnchor) {
       const bx = node.x + nodeRadius + 10;
       const by = node.y;
+      // hide left helper dot for raw nodes by keeping left anchor absent earlier
       inner += `
         <g class="anchor anchor-right" data-node="${escapeHtml(node.id)}" data-side="right" transform="translate(${bx},${by})" tabindex="0" role="button" aria-label="Output anchor for ${escapeHtml(node.label)}">
           <circle class="anchor-hit" cx="0" cy="0" r="${anchorHitRadius}" fill="transparent" pointer-events="all" />
@@ -521,992 +324,59 @@ function renderGraph(nodes, links, rootItem) {
 }
 
 /* ===============================
-   New: Anchor API + handlers (minimal)
-   - createAnchor(nodeId, side) / removeAnchor(nodeId, side)
-   - getAnchorPosition(nodeId, side) -> {x,y} in SVG coords
-   - attachAnchorHandlers(wrapper) to emit events for future wiring
+   Simple attach handlers so clicks work
    =============================== */
-
-function createAnchor(nodeId, side) {
-  // Toggle the flag in the in-memory node model if available
-  // This function assumes you keep a global reference to the last-built nodes array (e.g., window._lastGraphNodes)
-  const nodes = window._lastGraphNodes || [];
-  const node = nodes.find(n => n.id === nodeId);
-  if (!node) return false;
-  if (side === 'left') node.hasInputAnchor = true;
-  if (side === 'right') node.hasOutputAnchor = true;
-  return true;
-}
-
-function removeAnchor(nodeId, side) {
-  const nodes = window._lastGraphNodes || [];
-  const node = nodes.find(n => n.id === nodeId);
-  if (!node) return false;
-  if (side === 'left') node.hasInputAnchor = false;
-  if (side === 'right') node.hasOutputAnchor = false;
-  return true;
-}
-
-function getAnchorPosition(nodeId, side) {
-  // Returns { x, y } in SVG user coordinates for the anchor dot center, or null
-  const svg = document.querySelector('svg.graphSVG');
-  if (!svg) return null;
-  const anchorEl = svg.querySelector(`g.anchor[data-node="${CSS.escape(nodeId)}"][data-side="${side}"]`);
-  if (!anchorEl) return null;
-  // anchorEl is a <g transform="translate(x,y)">; parse transform
-  const transform = anchorEl.getAttribute('transform') || '';
-  const m = transform.match(/translate\(\s*([-\d.]+)[ ,]+([-\d.]+)\s*\)/);
-  if (!m) return null;
-  return { x: Number(m[1]), y: Number(m[2]) };
-}
-
 function attachAnchorHandlers(wrapper) {
   if (!wrapper) return;
   const svg = wrapper.querySelector('svg.graphSVG');
   if (!svg) return;
-
-  // Hover: dispatch custom event with anchor info
   svg.querySelectorAll('g.anchor').forEach(anchor => {
-    anchor.addEventListener('mouseenter', (ev) => {
-      const nodeId = anchor.getAttribute('data-node');
-      const side = anchor.getAttribute('data-side');
-      const evt = new CustomEvent('anchorHover', { detail: { nodeId, side } });
-      wrapper.dispatchEvent(evt);
-      // visual hover cue
-      anchor.querySelector('.anchor-dot')?.classList.add('anchor-hover');
-    });
-    anchor.addEventListener('mouseleave', (ev) => {
-      const nodeId = anchor.getAttribute('data-node');
-      const side = anchor.getAttribute('data-side');
-      const evt = new CustomEvent('anchorHoverEnd', { detail: { nodeId, side } });
-      wrapper.dispatchEvent(evt);
-      anchor.querySelector('.anchor-dot')?.classList.remove('anchor-hover');
-    });
-
-    // Click: dispatch anchorClick for wiring UI
-    anchor.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      const nodeId = anchor.getAttribute('data-node');
-      const side = anchor.getAttribute('data-side');
-      const evt = new CustomEvent('anchorClick', { detail: { nodeId, side } });
-      wrapper.dispatchEvent(evt);
-    });
-
-    // Keyboard support
-    anchor.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter' || ev.key === ' ') {
-        ev.preventDefault();
-        const nodeId = anchor.getAttribute('data-node');
-        const side = anchor.getAttribute('data-side');
-        const evt = new CustomEvent('anchorClick', { detail: { nodeId, side } });
-        wrapper.dispatchEvent(evt);
-      }
-    });
+    anchor.addEventListener('mouseenter', () => anchor.querySelector('.anchor-dot')?.classList.add('anchor-hover'));
+    anchor.addEventListener('mouseleave', () => anchor.querySelector('.anchor-dot')?.classList.remove('anchor-hover'));
+    anchor.addEventListener('click', (ev) => { ev.stopPropagation(); console.log('anchorClick', anchor.dataset.node, anchor.dataset.side); });
   });
 }
 
-/* ===============================
-   Integration note
-   - After you call renderGraph(...) and insert the returned HTML into the DOM,
-     set window._lastGraphNodes = nodes; then call attachAnchorHandlers(wrapperEl)
-   Example:
-     const html = renderGraph(nodes, links, rootItem);
-     document.getElementById('graphArea').innerHTML = html;
-     window._lastGraphNodes = nodes;
-     attachAnchorHandlers(document.querySelector('.graphWrapper'));
-   =============================== */
-
-/* ===============================
-   Inject minimal pulse CSS via JS (optional)
-   - keeps animations available; you can remove if you prefer no CSS
-   =============================== */
-(function injectPulseStylesIfMissing() {
-  if (document.getElementById('graphPulseStyles')) return;
-  const style = document.createElement('style');
-  style.id = 'graphPulseStyles';
-  style.textContent = `
-    @keyframes nodePulse {
-      0% { stroke-width: 2; filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
-      50% { stroke-width: 6; filter: drop-shadow(0 0 10px rgba(255,200,50,0.9)); }
-      100% { stroke-width: 2; filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
-    }
-    @keyframes edgePulse {
-      0% { stroke-opacity: 0.6; stroke-width: 2; }
-      50% { stroke-opacity: 1; stroke-width: 4; }
-      100% { stroke-opacity: 0.6; stroke-width: 2; }
-    }
-    circle.pulse-origin { animation: nodePulse 900ms ease-in-out infinite; stroke: #ffd27a !important; }
-    circle.pulse-node { animation: nodePulse 900ms ease-in-out infinite; stroke: #ffcc66 !important; }
-    line.pulse-edge { animation: edgePulse 900ms ease-in-out infinite; stroke: #ffcc66 !important; }
-    @media (prefers-reduced-motion: reduce) {
-      circle.pulse-origin, circle.pulse-node { animation: none !important; stroke-width: 4 !important; stroke: #ffd27a !important; }
-      line.pulse-edge { animation: none !important; stroke-width: 3 !important; stroke-opacity: 1 !important; }
-    }
-  `;
-  document.head.appendChild(style);
-})();
-
-/* ===============================
-   Render graph (left->right layout)
-   - group (<g class="graph-node">) includes inline style to suppress focus box
-   - child label/rect/number set pointer-events="none" so group receives pointer events
-   =============================== */
-/* ===============================
-   renderGraph (nodes + anchors only)
-   - Removes all line/wire rendering; keeps nodes, anchors, and spine placeholders
-   =============================== */
-function renderGraph(nodes, links, rootItem) {
-  const nodeRadius = 22;
-  const anchorRadius = 5;
-  const anchorHitRadius = 12; // invisible hit area
-  const isDark = isDarkMode();
-
-  // Group nodes by depth
-  const columns = {};
-  for (const node of nodes) {
-    if (!columns[node.depth]) columns[node.depth] = [];
-    columns[node.depth].push(node);
-  }
-
-  // Layout nodes (left -> right: depth -> x, index -> y)
-  for (const [depth, colNodes] of Object.entries(columns)) {
-    colNodes.sort((a, b) => {
-      const aOut = links.filter(l => l.to === a.id).length;
-      const bOut = links.filter(l => l.to === b.id).length;
-      if (bOut !== aOut) return bOut - aOut;
-      return (a.label || a.id).localeCompare(b.label || b.id);
-    });
-    colNodes.forEach((node, i) => {
-      node.x = Number(depth) * GRAPH_COL_WIDTH + 100;   // horizontal spacing per depth (columns)
-      node.y = i * GRAPH_ROW_HEIGHT + 100;              // vertical spacing per index (rows)
-    });
-  }
-
-  // Compute content bounds
-  const xs = nodes.map(n => n.x);
-  const ys = nodes.map(n => n.y);
-  const minX = nodes.length ? Math.min(...xs) : 0;
-  const maxX = nodes.length ? Math.max(...xs) : 0;
-  const minY = nodes.length ? Math.min(...ys) : 0;
-  const maxY = nodes.length ? Math.max(...ys) : 0;
-
-  const contentX = minX - nodeRadius - GRAPH_CONTENT_PAD;
-  const contentY = minY - nodeRadius - GRAPH_CONTENT_PAD;
-  const contentW = (maxX - minX) + (nodeRadius * 2) + GRAPH_CONTENT_PAD * 2;
-  const contentH = (maxY - minY) + (nodeRadius * 2) + GRAPH_CONTENT_PAD * 2;
-
-  // Build inner SVG
-  let inner = '';
-
-  // Spine placeholders (one per depth column) - faint vertical guide and helper placeholder area
-  for (const depthKey of Object.keys(columns)) {
-    const depth = Number(depthKey);
-    const spineX = depth * GRAPH_COL_WIDTH + 100 + nodeRadius + 36; // slightly right of nodes
-    const topY = minY - GRAPH_ROW_HEIGHT;
-    const bottomY = maxY + GRAPH_ROW_HEIGHT;
-    inner += `
-      <g class="spine-placeholder" data-depth="${depth}">
-        <line x1="${spineX}" y1="${topY}" x2="${spineX}" y2="${bottomY}"
-              stroke="${isDark ? '#2b2b2b' : '#e9e9e9'}" stroke-width="1" stroke-dasharray="4 6" opacity="0.35" pointer-events="none" />
-        <!-- helper placeholder area (above nodes) -->
-        <rect x="${spineX - 18}" y="${topY - 44}" width="36" height="28" rx="6" ry="6"
-              fill="${isDark ? '#222' : '#fff'}" stroke="${isDark ? '#444' : '#ddd'}" stroke-width="1" opacity="0.6" pointer-events="none" />
-      </g>
-    `;
-  }
-
-  // Nodes + anchors (no edges)
-  for (const node of nodes) {
-    const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
-    const strokeColor = "#2c3e50";
-    const textColor = getTextColor(fillColor);
-    const labelY = node.y - GRAPH_LABEL_OFFSET;
-
-    inner += `
-      <g class="graph-node" data-id="${escapeHtml(node.id)}" tabindex="0" role="button" aria-label="${escapeHtml(node.label)}" style="outline:none;">
-        <text class="nodeLabel" x="${node.x}" y="${labelY}"
-              text-anchor="middle" font-size="13" font-weight="700"
-              fill="${textColor}"
-              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke"
-              pointer-events="none">
-          ${escapeHtml(node.label)}
-        </text>
-
-        <circle class="graph-node-circle" data-id="${escapeHtml(node.id)}" cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
-                fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" />
-
-        ${node.raw ? "" : `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20" fill="${fillColor}" rx="4" ry="4" pointer-events="none" />`}
-
-        <text class="nodeNumber" x="${node.x}" y="${node.y}"
-              text-anchor="middle" font-size="13" font-weight="700"
-              fill="${textColor}"
-              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke"
-              pointer-events="none">
-          ${node.raw ? "" : Math.ceil(node.machines)}
-        </text>
-    `;
-
-    // Left input anchor (if present)
-    if (node.hasInputAnchor) {
-      const ax = node.x - nodeRadius - 10;
-      const ay = node.y;
-      inner += `
-        <g class="anchor anchor-left" data-node="${escapeHtml(node.id)}" data-side="left" transform="translate(${ax},${ay})" tabindex="0" role="button" aria-label="Input anchor for ${escapeHtml(node.label)}">
-          <circle class="anchor-hit" cx="0" cy="0" r="${anchorHitRadius}" fill="transparent" pointer-events="all" />
-          <circle class="anchor-dot" cx="0" cy="0" r="${anchorRadius}" fill="${isDark ? '#ffffff' : '#2c3e50'}" stroke="${isDark ? '#000' : '#fff'}" stroke-width="1.2" />
-        </g>
-      `;
-    }
-
-    // Right output anchor (if present)
-    if (node.hasOutputAnchor) {
-      const bx = node.x + nodeRadius + 10;
-      const by = node.y;
-      inner += `
-        <g class="anchor anchor-right" data-node="${escapeHtml(node.id)}" data-side="right" transform="translate(${bx},${by})" tabindex="0" role="button" aria-label="Output anchor for ${escapeHtml(node.label)}">
-          <circle class="anchor-hit" cx="0" cy="0" r="${anchorHitRadius}" fill="transparent" pointer-events="all" />
-          <circle class="anchor-dot" cx="0" cy="0" r="${anchorRadius}" fill="${isDark ? '#ffffff' : '#2c3e50'}" stroke="${isDark ? '#000' : '#fff'}" stroke-width="1.2" />
-        </g>
-      `;
-    }
-
-    inner += `</g>`;
-  }
-
-  const viewBoxX = Math.floor(contentX);
-  const viewBoxY = Math.floor(contentY);
-  const viewBoxW = Math.ceil(contentW);
-  const viewBoxH = Math.ceil(contentH);
-
-  const svg = `
-    <div class="graphWrapper" data-vb="${viewBoxX},${viewBoxY},${viewBoxW},${viewBoxH}">
-      <div class="graphViewport">
-        <svg xmlns="http://www.w3.org/2000/svg"
-             class="graphSVG"
-             viewBox="${viewBoxX} ${viewBoxY} ${viewBoxW} ${viewBoxH}"
-             preserveAspectRatio="xMidYMid meet">
-          <g id="zoomLayer">
-            ${inner}
-          </g>
-        </svg>
-      </div>
-    </div>
-  `;
-  return svg;
-}
-
-/* ===============================
-   Highlighting (strict immediate-only, toggle)
-   - Only circle and line elements receive pulse classes
-   - Clicking the same node toggles pulses off
-   =============================== */
-function clearPulses(svg) {
-  if (!svg) return;
-  svg.querySelectorAll('circle.pulse-origin, circle.pulse-node, line.pulse-edge').forEach(el => {
-    el.classList.remove('pulse-origin', 'pulse-node', 'pulse-edge');
-  });
-}
-
-function highlightOutgoing(nodeId, svg) {
-  if (!svg || !nodeId) return;
-
-  // If origin circle already has pulse-origin, toggle off
-  const originCircle = svg.querySelector(`circle.graph-node-circle[data-id="${CSS.escape(nodeId)}"]`);
-  if (originCircle && originCircle.classList.contains('pulse-origin')) {
-    clearPulses(svg);
-    return;
-  }
-
-  // Clear previous pulses (only circles/lines)
-  clearPulses(svg);
-
-  // Mark origin circle only
-  if (originCircle) originCircle.classList.add('pulse-origin');
-
-  // Find outgoing edges (consumer -> its inputs)
-  const outgoing = Array.from(svg.querySelectorAll(`line.graph-edge[data-from="${CSS.escape(nodeId)}"]`));
-
-  // Immediate inputs only
-  outgoing.forEach(edgeEl => {
-    edgeEl.classList.add('pulse-edge');
-    const toId = edgeEl.getAttribute('data-to');
-    const targetCircle = svg.querySelector(`circle.graph-node-circle[data-id="${CSS.escape(toId)}"]`);
-    if (targetCircle) targetCircle.classList.add('pulse-node');
-  });
-}
-
-/* ===============================
-   Pointer handling (centralized on wrapper)
-   - Single pointer handlers on wrapper detect clicks on any child element
-   - Uses pointerId map to track drag vs click per pointer
-   =============================== */
 function attachNodePointerHandlers(wrapper) {
   if (!wrapper) return;
   const svg = wrapper.querySelector('svg.graphSVG');
   if (!svg) return;
-
-  // Map pointerId -> { nodeId, startX, startY, isDragging }
-  const pointerMap = new Map();
-
-  function getThreshold(ev) {
-    return (ev && ev.pointerType === 'touch') ? TOUCH_THRESHOLD_PX : DRAG_THRESHOLD_PX;
-  }
-
-  // pointerdown on wrapper (capture early)
-  wrapper.addEventListener('pointerdown', (ev) => {
-    // find nearest graph-node ancestor of the event target
-    const nodeGroup = ev.target.closest && ev.target.closest('g.graph-node[data-id]');
-    if (!nodeGroup) return; // not a node, ignore
-    // stop propagation so global pan doesn't start
-    ev.stopPropagation();
-    try { nodeGroup.setPointerCapture?.(ev.pointerId); } catch (e) {}
-    const nodeId = nodeGroup.getAttribute('data-id');
-    pointerMap.set(ev.pointerId, { nodeId, startX: ev.clientX, startY: ev.clientY, isDragging: false });
-  }, { passive: false });
-
-  // pointermove on window to track dragging
-  window.addEventListener('pointermove', (ev) => {
-    const entry = pointerMap.get(ev.pointerId);
-    if (!entry) return;
-    if (entry.isDragging) return;
-    const dx = ev.clientX - entry.startX;
-    const dy = ev.clientY - entry.startY;
-    if (Math.hypot(dx, dy) > getThreshold(ev)) {
-      entry.isDragging = true;
-      pointerMap.set(ev.pointerId, entry);
-    }
-  }, { passive: true });
-
-  // pointerup on wrapper to finalize click vs drag
-  wrapper.addEventListener('pointerup', (ev) => {
-    const entry = pointerMap.get(ev.pointerId);
-    if (!entry) return;
-    try {
-      const nodeGroup = document.querySelector(`g.graph-node[data-id="${CSS.escape(entry.nodeId)}"]`);
-      nodeGroup && nodeGroup.releasePointerCapture?.(ev.pointerId);
-    } catch (e) {}
-    if (!entry.isDragging) {
-      // confirmed click — highlight immediate inputs (toggle behavior inside)
-      highlightOutgoing(entry.nodeId, svg);
-    }
-    pointerMap.delete(ev.pointerId);
-    ev.stopPropagation();
-  }, { passive: false });
-
-  // pointercancel cleanup
-  wrapper.addEventListener('pointercancel', (ev) => {
-    pointerMap.delete(ev.pointerId);
-  });
-
-  // keyboard support: Enter/Space on group
-  svg.querySelectorAll('g.graph-node[data-id]').forEach(group => {
-    group.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter' || ev.key === ' ') {
-        ev.preventDefault();
-        const nodeId = group.getAttribute('data-id');
-        highlightOutgoing(nodeId, svg);
-      }
+  svg.querySelectorAll('g.graph-node').forEach(group => {
+    group.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const id = group.getAttribute('data-id');
+      console.log('node clicked', id);
+      // simple highlight: toggle stroke
+      const circle = group.querySelector('circle.graph-node-circle');
+      if (!circle) return;
+      const active = circle.classList.toggle('active-node');
+      circle.style.strokeWidth = active ? '4' : '2';
     });
   });
-
-  // clicking outside clears pulses
-  function onDocClick(e) {
-    if (!svg.contains(e.target)) clearPulses(svg);
-  }
-  document.removeEventListener('click', onDocClick);
-  document.addEventListener('click', onDocClick);
 }
 
 /* ===============================
-   Helper: detect if pointer target is a node (used to prevent starting pan)
+   Render demo on DOMContentLoaded
    =============================== */
-function pointerIsOnNode(ev) {
-  return !!(ev.target && ev.target.closest && ev.target.closest('g.graph-node[data-id]'));
-}
-
-/* ===============================
-   Zoom / pan utilities (pointer-based)
-   - pan start is guarded by pointerIsOnNode so nodes handle their own pointers
-   =============================== */
-function ensureResetButton() {
-  let btn = document.querySelector('.graphResetButton');
-  const graphArea = document.getElementById('graphArea');
-  if (!graphArea) return null;
-
-  // If button exists but not in the correct place, remove it so we can recreate correctly
-  if (btn && btn.nextElementSibling !== graphArea) {
-    btn.remove();
-    btn = null;
-  }
-
-  // Create button container if missing
-  if (!btn) {
-    btn = document.createElement('div');
-    btn.className = 'graphResetButton';
-    btn.innerHTML = `<button id="resetViewBtn" type="button">Reset view</button>`;
-
-    // Insert the button directly before the graphArea so it stays above it in document flow
-    graphArea.parentNode.insertBefore(btn, graphArea);
-
-    // Minimal inline styles to center the button and keep it out of the graph's interactive area
-    btn.style.display = 'flex';
-    btn.style.justifyContent = 'center'; // CENTER the button horizontally
-    btn.style.alignItems = 'center';
-    btn.style.padding = '8px 12px';
-    btn.style.boxSizing = 'border-box';
-    btn.style.background = 'transparent';
-    btn.style.zIndex = '20';
-    btn.style.pointerEvents = 'auto';
-  }
-
-  // Ensure the graphArea has top padding so the SVG cannot be panned/zoomed under the button
-  function adjustGraphTopPadding() {
-    if (!btn || !graphArea) return;
-    // Measure button height after layout
-    const h = Math.max(0, btn.offsetHeight || 0);
-    const gap = 8; // small gap between button and graph
-    // Apply padding-top to graphArea; preserve any existing padding-bottom etc.
-    graphArea.style.paddingTop = (h + gap) + 'px';
-  }
-
-  // Run once after insertion to set padding
-  requestAnimationFrame(() => adjustGraphTopPadding());
-
-  // Keep padding correct on window resize (debounced)
-  let resizeTimer = null;
-  function onResize() {
-    if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => adjustGraphTopPadding(), 80);
-  }
-  window.removeEventListener('resize', onResize);
-  window.addEventListener('resize', onResize);
-
-  return btn;
-}
-
-function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = {}) {
-  if (!containerEl) return;
-
-  const svg = containerEl.querySelector('svg.graphSVG');
-  const zoomLayer = svg.querySelector('#zoomLayer');
-  const resetBtn = resetButtonEl || document.querySelector('#resetViewBtn');
-
-  let scale = 1;
-  let tx = 0;
-  let ty = 0;
-  let isPanning = false;
-  let startX = 0;
-  let startY = 0;
-  let activePointerId = null;
-
-  function getContentBBox() {
-    const vb = svg.viewBox.baseVal;
-    if (vb && vb.width && vb.height) return { x: vb.x, y: vb.y, width: vb.width, height: vb.height };
-    try { return zoomLayer.getBBox(); } catch (e) { return { x: 0, y: 0, width: svg.clientWidth, height: svg.clientHeight }; }
-  }
-
-  function getViewSizeInSvgCoords() {
-    const rect = svg.getBoundingClientRect();
-    const ptTL = svg.createSVGPoint(); ptTL.x = 0; ptTL.y = 0;
-    const ptBR = svg.createSVGPoint(); ptBR.x = rect.width; ptBR.y = rect.height;
-    const svgTL = ptTL.matrixTransform(svg.getScreenCTM().inverse());
-    const svgBR = ptBR.matrixTransform(svg.getScreenCTM().inverse());
-    return { width: svgBR.x - svgTL.x, height: svgBR.y - svgTL.y };
-  }
-
-  function clampTranslation(proposedTx, proposedTy, proposedScale) {
-    const bbox = getContentBBox();
-    const view = getViewSizeInSvgCoords();
-    const layerW = bbox.width * proposedScale;
-    const layerH = bbox.height * proposedScale;
-
-    const minTxLarge = view.width - layerW - bbox.x * proposedScale;
-    const maxTxLarge = -bbox.x * proposedScale;
-    const minTyLarge = view.height - layerH - bbox.y * proposedScale;
-    const maxTyLarge = -bbox.y * proposedScale;
-
-    const overlapFraction = 0.12;
-    const allowedExtraX = Math.max((view.width - layerW) * (1 - overlapFraction), 0);
-    const allowedExtraY = Math.max((view.height - layerH) * (1 - overlapFraction), 0);
-
-    let clampedTx = proposedTx;
-    let clampedTy = proposedTy;
-
-    if (layerW > view.width) {
-      clampedTx = Math.min(maxTxLarge, Math.max(minTxLarge, proposedTx));
-    } else {
-      const centerTx = (view.width - layerW) / 2 - bbox.x * proposedScale;
-      const minTxSmall = centerTx - allowedExtraX / 2;
-      const maxTxSmall = centerTx + allowedExtraX / 2;
-      clampedTx = Math.min(maxTxSmall, Math.max(minTxSmall, proposedTx));
-    }
-
-    if (layerH > view.height) {
-      clampedTy = Math.min(maxTyLarge, Math.max(minTyLarge, proposedTy));
-    } else {
-      const centerTy = (view.height - layerH) / 2 - bbox.y * proposedScale;
-      const minTySmall = centerTy - allowedExtraY / 2;
-      const maxTySmall = centerTy + allowedExtraY / 2;
-      clampedTy = Math.min(maxTySmall, Math.max(minTySmall, proposedTy));
-    }
-
-    return { tx: clampedTx, ty: clampedTy };
-  }
-
-  function applyTransform() {
-    const clamped = clampTranslation(tx, ty, scale);
-    tx = clamped.tx;
-    ty = clamped.ty;
-    zoomLayer.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
-  }
-
-  function zoomAt(newScale, cx, cy) {
-    const pt = svg.createSVGPoint();
-    pt.x = cx; pt.y = cy;
-    const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
-
-    const localX = (svgP.x - tx) / scale;
-    const localY = (svgP.y - ty) / scale;
-
-    const newTx = svgP.x - newScale * localX;
-    const newTy = svgP.y - newScale * localY;
-
-    scale = newScale;
-    tx = newTx;
-    ty = newTy;
-
-    applyTransform();
-  }
-
-  // Wheel zoom
-  svg.addEventListener('wheel', (ev) => {
-    ev.preventDefault();
-    const delta = -ev.deltaY;
-    const factor = delta > 0 ? 1.08 : 0.92;
-    const newScale = Math.min(3, Math.max(0.25, +(scale * factor).toFixed(3)));
-    zoomAt(newScale, ev.clientX, ev.clientY);
-  }, { passive: false });
-
-  // Pointer-based pan start (guarded by pointerIsOnNode)
-  svg.addEventListener('pointerdown', (ev) => {
-    // If pointer is on a node, do not start pan here (node handlers will manage)
-    if (pointerIsOnNode(ev)) return;
-    if (ev.button !== 0) return;
-    isPanning = true;
-    activePointerId = ev.pointerId;
-    startX = ev.clientX;
-    startY = ev.clientY;
-    try { svg.setPointerCapture(ev.pointerId); } catch (e) {}
-    svg.style.cursor = 'grabbing';
-  });
-
-  window.addEventListener('pointermove', (ev) => {
-    if (!isPanning || ev.pointerId !== activePointerId) return;
-    const dxScreen = ev.clientX - startX;
-    const dyScreen = ev.clientY - startY;
-    startX = ev.clientX;
-    startY = ev.clientY;
-
-    const p0 = svg.createSVGPoint(); p0.x = 0; p0.y = 0;
-    const p1 = svg.createSVGPoint(); p1.x = dxScreen; p1.y = dyScreen;
-    const svg0 = p0.matrixTransform(svg.getScreenCTM().inverse());
-    const svg1 = p1.matrixTransform(svg.getScreenCTM().inverse());
-    const dxSvg = svg1.x - svg0.x;
-    const dySvg = svg1.y - svg0.y;
-
-    tx += dxSvg;
-    ty += dySvg;
-    applyTransform();
-  });
-
-  window.addEventListener('pointerup', (ev) => {
-    if (!isPanning || ev.pointerId !== activePointerId) return;
-    isPanning = false;
-    activePointerId = null;
-    try { svg.releasePointerCapture(ev.pointerId); } catch (e) {}
-    svg.style.cursor = 'grab';
-  });
-
-  svg.style.cursor = 'grab';
-
-  function computeAutoFit() {
-    const bbox = getContentBBox();
-    const view = getViewSizeInSvgCoords();
-    if (bbox.width === 0 || bbox.height === 0) {
-      scale = 1; tx = 0; ty = 0; applyTransform(); return;
-    }
-
-    const pad = 0.92;
-    const scaleX = (view.width * pad) / bbox.width;
-    const scaleY = (view.height * pad) / bbox.height;
-    const fitScale = Math.min(scaleX, scaleY);
-
-    scale = Math.min(3, Math.max(0.25, fitScale));
-
-    const layerW = bbox.width * scale;
-    const layerH = bbox.height * scale;
-    tx = (view.width - layerW) / 2 - bbox.x * scale;
-    ty = (view.height - layerH) / 2 - bbox.y * scale;
-
-    applyTransform();
-  }
-
-  if (resetBtn) {
-    resetBtn.addEventListener('click', () => {
-      computeAutoFit();
-      showToast("View reset");
-    });
-  }
-
-  if (autoFit) requestAnimationFrame(() => computeAutoFit());
-  else applyTransform();
-
-  containerEl._teardownGraphZoom = () => { /* no-op */ };
-
-  function getContentBBox() {
-    try { return zoomLayer.getBBox(); } catch (e) { return { x: 0, y: 0, width: svg.clientWidth, height: svg.clientHeight }; }
-  }
-  function getViewSizeInSvgCoords() {
-    const rect = svg.getBoundingClientRect();
-    const ptTL = svg.createSVGPoint(); ptTL.x = 0; ptTL.y = 0;
-    const ptBR = svg.createSVGPoint(); ptBR.x = rect.width; ptBR.y = rect.height;
-    const svgTL = ptTL.matrixTransform(svg.getScreenCTM().inverse());
-    const svgBR = ptBR.matrixTransform(svg.getScreenCTM().inverse());
-    return { width: svgBR.x - svgTL.x, height: svgBR.y - svgTL.y };
-  }
-}
-
-/* ===============================
-   Render table + graph
-   =============================== */
-function computeRailsNeeded(inputRates, railSpeed) {
-  const total = Object.values(inputRates).reduce((sum, val) => sum + val, 0);
-  return railSpeed && railSpeed > 0 ? Math.ceil(total / railSpeed) : "—";
-}
-
-function renderTable(chainObj, rootItem, rate) {
-  const { chain, machineTotals, extractorTotals } = chainObj;
-  const { nodes, links } = buildGraphData(chain, rootItem);
-  const graphHTML = renderGraph(nodes, links, rootItem);
-
-  const graphArea = document.getElementById("graphArea");
-  if (!graphArea) return;
-
-  const prevWrapper = graphArea.querySelector(".graphWrapper");
-  if (prevWrapper && prevWrapper._teardownGraphZoom) {
-    try { prevWrapper._teardownGraphZoom(); } catch (e) { /* ignore */ }
-  }
-
-  ensureResetButton();
-  graphArea.innerHTML = graphHTML;
-  const wrapper = graphArea.querySelector(".graphWrapper");
-  const resetBtn = document.querySelector('#resetViewBtn');
-  setupGraphZoom(wrapper, { autoFit: true, resetButtonEl: resetBtn });
-
-  // Attach centralized pointer handlers for nodes
-  attachNodePointerHandlers(wrapper);
-
-  const railSpeed = parseInt(document.getElementById("railSelect").value) || 0;
-
-  let html = `
-    <h2>Production chain for ${rate} / min of ${rootItem}</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Item</th>
-          <th>Qty/min</th>
-          <th>Output/machine</th>
-          <th>Machines</th>
-          <th>Machine Type</th>
-          <th>Inputs</th>
-          <th>Rails Needed</th>
-        </tr>
-      </thead>
-      <tbody>
-  `;
-
-  const tierGroups = {};
-  for (const [item, data] of Object.entries(chain)) {
-    const tier = TIERS[item] ?? 0;
-    if (!tierGroups[tier]) tierGroups[tier] = [];
-    tierGroups[tier].push([item, data]);
-  }
-
-  const sortedTiers = Object.keys(tierGroups).map(Number).sort((a, b) => b - a);
-
-  for (const tier of sortedTiers) {
-    html += `<tr><td colspan="7"><strong>--- Level ${tier} ---</strong></td></tr>`;
-    const rows = tierGroups[tier].sort((a, b) => a[0].localeCompare(b[0]));
-    for (const [item, data] of rows) {
-      if (data.raw) continue;
-      let outputPerMachine = "—";
-      let machines = "—";
-      let railsNeeded = "—";
-      const fillColor = MACHINE_COLORS[data.building] || "#ecf0f1";
-      const textColor = getTextColor(fillColor);
-      if (!data.raw) {
-        const recipe = getRecipe(item);
-        if (recipe) outputPerMachine = Math.ceil((recipe.output * 60) / recipe.time);
-        machines = Math.ceil(data.machines);
-        railsNeeded = computeRailsNeeded(data.inputs, railSpeed);
-      }
-      const inputs = Object.entries(data.inputs || {}).map(([i, amt]) => `${i}: ${Math.ceil(amt)}/min`).join("<br>");
-      html += `
-        <tr>
-          <td>${item}</td>
-          <td>${Math.ceil(data.rate)}</td>
-          <td>${outputPerMachine}</td>
-          <td>${machines}</td>
-          <td style="background-color:${fillColor}; color:${textColor};">
-            ${data.building}
-          </td>
-          <td>${inputs || "—"}</td>
-          <td>${railsNeeded}</td>
-        </tr>
-      `;
-    }
-  }
-
-  html += `</tbody></table>`;
-
-  html += `
-    <h3>MACHINES REQUIRED (total)</h3>
-    <table>
-      <thead><tr><th>Machine Type</th><th>Count</th></tr></thead>
-      <tbody>
-        ${Object.entries(machineTotals).sort((a, b) => b[1] - a[1]).map(([type, count]) => `
-          <tr><td>${type}</td><td>${Math.ceil(count)}</td></tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-
-  html += `
-    <h3>EXTRACTION REQUIRED</h3>
-    <table>
-      <thead>
-        <tr><th>Resource</th><th>Impure</th><th>Normal</th><th>Pure</th><th>Qty/min</th></tr>
-      </thead>
-      <tbody>
-  `;
-
-  const sortedExtractors = Object.entries(extractorTotals).filter(([_, qty]) => qty > 0).sort((a, b) => b[1] - a[1]);
-  for (const [resource, qty] of sortedExtractors) {
-    const rounded = Math.ceil(qty);
-    if (SPECIAL_EXTRACTORS[resource]) {
-      const normal = Math.ceil(rounded / SPECIAL_EXTRACTORS[resource]);
-      html += `<tr><td>${resource}</td><td>—</td><td>${normal}</td><td>—</td><td>${rounded}</td></tr>`;
-    } else {
-      const impure = Math.ceil(rounded / 60);
-      const normal = Math.ceil(rounded / 120);
-      const pure = Math.ceil(rounded / 240);
-      html += `<tr><td>${resource}</td><td>${impure}</td><td>${normal}</td><td>${pure}</td><td>${rounded}</td></tr>`;
-    }
-  }
-
-  html += `</tbody></table>`;
-  const out = document.getElementById("outputArea");
-  if (out) out.innerHTML = html;
-}
-
-/* ===============================
-   Run calculator & UI wiring
-   =============================== */
-function runCalculator() {
-  const item = document.getElementById('itemSelect').value;
-  const rateRaw = document.getElementById('rateInput').value;
-  const rate = parseFloat(rateRaw);
-
-  if (!item || isNaN(rate) || rate <= 0) {
-    document.getElementById("outputArea").innerHTML = "<p style='color:red;'>Please select an item and enter a valid rate.</p>";
-    return;
-  }
-
-  const chainObj = expandChain(item, rate);
-  renderTable(chainObj, item, rate);
-
-  const rail = document.getElementById("railSelect").value;
-  const params = new URLSearchParams({ item, rate, rail });
-  history.replaceState(null, "", "?" + params.toString());
-}
-
-/* ===============================
-   Dark mode toggle
-   =============================== */
-function setupDarkMode() {
-  const toggle = document.getElementById("darkModeToggle");
-  if (!toggle) return;
-  const saved = localStorage.getItem("darkMode");
-  if (saved === "true") {
-    document.body.classList.add("dark");
-    toggle.textContent = "☀️ Light Mode";
+document.addEventListener('DOMContentLoaded', () => {
+  const chain = demoChain();
+  const { nodes, links } = buildGraphData(chain);
+  window._lastGraphNodes = nodes;
+  const html = renderGraph(nodes, links);
+  const container = document.getElementById('graphArea') || document.body;
+  // If there's a dedicated graphArea, use it; otherwise append to body
+  if (document.getElementById('graphArea')) {
+    document.getElementById('graphArea').innerHTML = html;
   } else {
-    toggle.textContent = "🌙 Dark Mode";
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    document.body.appendChild(wrapper);
   }
-  toggle.addEventListener("click", () => {
-    const isDark = document.body.classList.toggle("dark");
-    localStorage.setItem("darkMode", isDark);
-    toggle.textContent = isDark ? "☀️ Light Mode" : "🌙 Dark Mode";
-  });
-}
+  const wrapperEl = document.querySelector('.graphWrapper');
+  attachAnchorHandlers(wrapperEl);
+  attachNodePointerHandlers(wrapperEl);
 
-/* ===============================
-   Initialization
-   =============================== */
-
-async function init() {
-  setupDarkMode();
-  const data = await loadRecipes();
-  RECIPES = data;
-  TIERS = data._tiers || {};
-  TIERS["Basic Building Material"] = 0;
-
-  const itemSelect = document.getElementById('itemSelect');
-  const rateInput = document.getElementById("rateInput");
-  const railSelect = document.getElementById("railSelect");
-
-  if (itemSelect) itemSelect.innerHTML = `<option value="" disabled selected>Select Item Here</option>`;
-  if (railSelect) railSelect.innerHTML = `
-    <option value="120">v1 (120/min)</option>
-    <option value="240">v2 (240/min)</option>
-    <option value="480">v3 (480/min)</option>
-  `;
-  if (rateInput) { rateInput.value = ""; rateInput.dataset.manual = ""; rateInput.placeholder = "Rate (/min)"; }
-
-  if (itemSelect) {
-    Object.keys(RECIPES).filter(k => k !== "_tiers").sort().forEach(item => {
-      const option = document.createElement('option');
-      option.value = item;
-      option.textContent = item;
-      itemSelect.appendChild(option);
-    });
-  }
-
-  // Helper: compute natural/base rate for the currently selected item
-  function getNaturalPerMinForSelected() {
-    const slug = itemSelect?.value;
-    const recipe = RECIPES[slug];
-    if (!recipe || !recipe.output || !recipe.time) return null;
-    return Math.round((recipe.output / recipe.time) * 60);
-  }
-
-  // --- Rate input: allow full backspacing; revert only on blur/Enter/Escape/item change ---
-  if (itemSelect && rateInput) {
-    // When item changes, set rate to natural value only if user hasn't manually set one.
-    itemSelect.addEventListener("change", () => {
-      const naturalPerMin = getNaturalPerMinForSelected();
-      if (!rateInput.dataset.manual) {
-        rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
-      }
-      // If the field is empty when switching items, ensure it reverts to the new base immediately
-      if (rateInput.value.trim() === "") {
-        rateInput.dataset.manual = "";
-        rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
-      }
-    });
-
-    // Keep user input intact while typing; mark manual when they type a non-empty numeric value
-    rateInput.addEventListener("input", () => {
-      const rawVal = rateInput.value;
-      // If user cleared the field, do not auto-revert here — allow them to type
-      if (rawVal.trim() === "") {
-        // leave dataset.manual as-is so we don't overwrite while focused
-        return;
-      }
-      // If they typed a number, mark as manual so item changes won't overwrite it
-      const numeric = Number(rawVal);
-      if (!Number.isNaN(numeric)) {
-        rateInput.dataset.manual = "true";
-      } else {
-        // non-numeric input: keep it so user can correct it; do not revert
-      }
-    });
-
-    // On blur: if empty, revert to base; otherwise accept value and optionally trigger calculation
-    rateInput.addEventListener("blur", () => {
-      if (rateInput.value.trim() === "") {
-        rateInput.dataset.manual = "";
-        const naturalPerMin = getNaturalPerMinForSelected();
-        rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
-      } else {
-        // user provided a value — mark manual and trigger calc if desired
-        rateInput.dataset.manual = "true";
-        // Optionally trigger calculation here:
-        // document.getElementById('calcButton')?.click();
-      }
-    });
-
-    // On Enter: accept value or revert if empty; Escape reverts immediately
-    rateInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        if (rateInput.value.trim() === "") {
-          rateInput.dataset.manual = "";
-          const naturalPerMin = getNaturalPerMinForSelected();
-          rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
-        } else {
-          rateInput.dataset.manual = "true";
-          // Optionally trigger calculation here:
-          // document.getElementById('calcButton')?.click();
-        }
-      } else if (e.key === "Escape") {
-        rateInput.dataset.manual = "";
-        const naturalPerMin = getNaturalPerMinForSelected();
-        rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
-        // keep focus on input so user can continue typing if desired
-        rateInput.focus();
-      }
-    });
-  }
-
-  // Read shared params from URL
-  const params = new URLSearchParams(window.location.search);
-  const sharedItem = params.get("item");
-  const sharedRate = params.get("rate");
-  const sharedRail = params.get("rail");
-
-  if (sharedItem && itemSelect) itemSelect.value = sharedItem;
-  if (sharedRate && rateInput) { rateInput.value = sharedRate; rateInput.dataset.manual = "true"; }
-  if (sharedRail && railSelect) railSelect.value = sharedRail;
-  if (sharedItem && sharedRate) runCalculator();
-
-  // Calculate button: run and update URL
-  const calcButton = document.getElementById("calcButton");
-  if (calcButton) calcButton.addEventListener("click", () => {
-    runCalculator();
-    const item = itemSelect.value;
-    const rate = rateInput.value;
-    const rail = railSelect.value;
-    const newParams = new URLSearchParams({ item, rate, rail });
-    history.replaceState(null, "", "?" + newParams.toString());
-  });
-
-  // Clear button: reset manual flag and navigate home
-  const clearBtn = document.getElementById("clearStateBtn");
-  if (clearBtn) {
-    clearBtn.addEventListener("click", () => {
-      if (rateInput) rateInput.dataset.manual = "";
-      const base = window.location.origin;
-      if (base.includes("localhost")) { window.location.href = "http://localhost:8000"; return; }
-      window.location.href = "https://srcraftingcalculations.github.io/sr-crafting-calculator/";
-    });
-  }
-
-  // Share button: copy current URL to clipboard
-  const shareButton = document.getElementById("shareButton");
-  if (shareButton) {
-    shareButton.addEventListener("click", () => {
-      const url = window.location.href;
-      navigator.clipboard.writeText(url).then(() => showToast("Shareable link copied!")).catch(() => {
-        const temp = document.createElement("input");
-        temp.value = url;
-        document.body.appendChild(temp);
-        temp.select();
-        document.execCommand("copy");
-        temp.remove();
-        showToast("Shareable link copied!");
-      });
-    });
-  }
-}
-
-init();
+  // Quick verification log: list edges drawn
+  console.log('Rendered nodes:', nodes.map(n => n.id));
+  console.log('Rendered links (consumer->input):', links);
+});
