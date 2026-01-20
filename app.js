@@ -604,7 +604,7 @@ async function init() {
   const railSelect = document.getElementById("railSelect");
 
   // ⭐ Default placeholders on fresh load
-  itemSelect.innerHTML = `<option value="" disabled selected>Select Item</option>`;
+  itemSelect.innerHTML = `<option value="" disabled selected>Select Item Here</option>`;
   railSelect.innerHTML = `
     <option value="" disabled selected>Select Rail</option>
     <option value="120">v1 (120/min)</option>
@@ -625,27 +625,42 @@ async function init() {
       itemSelect.appendChild(option);
     });
 
-  // ⭐ Auto-fill natural rate when item is selected
-  itemSelect.addEventListener("change", () => {
+  // Helper to compute natural per-minute for currently selected item
+  function getNaturalPerMinForSelected() {
     const slug = itemSelect.value;
     const recipe = RECIPES[slug];
+    if (!recipe || !recipe.output || !recipe.time) return null;
+    return Math.round((recipe.output / recipe.time) * 60);
+  }
 
-    if (!recipe) {
-      // RAW item → no natural rate
-      if (!rateInput.dataset.manual) rateInput.value = "";
-      return;
-    }
+  // ⭐ Auto-fill natural rate when item is selected
+  itemSelect.addEventListener("change", () => {
+    const naturalPerMin = getNaturalPerMinForSelected();
 
-    // Natural output = (output per craft / time) * 60
-    const naturalPerMin = Math.round((recipe.output / recipe.time) * 60);
-
+    // If user hasn't manually overridden, set the natural rate (or blank for RAW)
     if (!rateInput.dataset.manual) {
-      rateInput.value = naturalPerMin;
+      rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
     }
   });
 
-  // ⭐ Manual override detection
+  // ⭐ Rate input behavior: manual override vs auto-default on empty/zero
   rateInput.addEventListener("input", () => {
+    const rawVal = rateInput.value;
+    const numeric = Number(rawVal);
+
+    // If user cleared the field or set it to 0, revert to natural per-minute for the selected item
+    if (rawVal === "" || (!isNaN(numeric) && numeric === 0)) {
+      rateInput.dataset.manual = ""; // treat as not manually locked
+      const naturalPerMin = getNaturalPerMinForSelected();
+      if (naturalPerMin !== null) {
+        rateInput.value = naturalPerMin;
+      } else {
+        rateInput.value = "";
+      }
+      return;
+    }
+
+    // Otherwise treat as a manual override
     rateInput.dataset.manual = "true";
   });
 
