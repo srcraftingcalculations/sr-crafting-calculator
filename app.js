@@ -267,19 +267,26 @@ function buildGraphData(chain, rootItem) {
   document.head.appendChild(style);
 })();
 
-/* ===============================
-   Render graph (left->right)
-   - groups (<g class="graph-node">) are focusable and receive pointer events
-   =============================== */
+// ===============================
+// renderGraph (updated)
+// - children text/rect set pointer-events="none" so clicks hit the group/circle
+// ===============================
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
-  const isDark = isDarkMode();
+  const isDark = document.body.classList.contains("dark");
 
+  // Group nodes by depth
   const columns = {};
   for (const node of nodes) {
     if (!columns[node.depth]) columns[node.depth] = [];
     columns[node.depth].push(node);
   }
+
+  // Layout nodes (left -> right: depth -> x, index -> y)
+  const colWidth = 220;
+  const rowHeight = 120;
+  const labelOffset = 40;
+  const contentPad = 64;
 
   for (const [depth, colNodes] of Object.entries(columns)) {
     colNodes.sort((a, b) => {
@@ -289,8 +296,8 @@ function renderGraph(nodes, links, rootItem) {
       return (a.label || a.id).localeCompare(b.label || b.id);
     });
     colNodes.forEach((node, i) => {
-      node.x = Number(depth) * GRAPH_COL_WIDTH + 100;
-      node.y = i * GRAPH_ROW_HEIGHT + 100;
+      node.x = Number(depth) * colWidth + 100;   // horizontal spacing per depth (columns)
+      node.y = i * rowHeight + 100;              // vertical spacing per index (rows)
     });
   }
 
@@ -301,18 +308,20 @@ function renderGraph(nodes, links, rootItem) {
   const minY = nodes.length ? Math.min(...ys) : 0;
   const maxY = nodes.length ? Math.max(...ys) : 0;
 
-  const contentX = minX - nodeRadius - GRAPH_CONTENT_PAD;
-  const contentY = minY - nodeRadius - GRAPH_CONTENT_PAD;
-  const contentW = (maxX - minX) + (nodeRadius * 2) + GRAPH_CONTENT_PAD * 2;
-  const contentH = (maxY - minY) + (nodeRadius * 2) + GRAPH_CONTENT_PAD * 2;
+  const contentX = minX - nodeRadius - contentPad;
+  const contentY = minY - nodeRadius - contentPad;
+  const contentW = (maxX - minX) + (nodeRadius * 2) + contentPad * 2;
+  const contentH = (maxY - minY) + (nodeRadius * 2) + contentPad * 2;
 
+  // Build inner SVG
   let inner = '';
 
-  // edges
+  // Edges
   for (const link of links) {
     const from = nodes.find(n => n.id === link.from);
     const to = nodes.find(n => n.id === link.to);
     if (!from || !to) continue;
+
     inner += `
       <line class="graph-edge" data-from="${escapeHtml(from.id)}" data-to="${escapeHtml(to.id)}"
             x1="${from.x}" y1="${from.y}"
@@ -321,31 +330,33 @@ function renderGraph(nodes, links, rootItem) {
     `;
   }
 
-  // nodes (group receives pointer events so clicking any child triggers handlers)
+  // Nodes (group receives pointer events so clicking any child triggers handlers)
   for (const node of nodes) {
     const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
     const strokeColor = "#2c3e50";
     const textColor = getTextColor(fillColor);
-    const labelY = node.y - GRAPH_LABEL_OFFSET;
+    const labelY = node.y - labelOffset;
 
     inner += `
       <g class="graph-node" data-id="${escapeHtml(node.id)}" tabindex="0" role="button" aria-label="${escapeHtml(node.label)}">
         <text class="nodeLabel" x="${node.x}" y="${labelY}"
               text-anchor="middle" font-size="13" font-weight="700"
               fill="${textColor}"
-              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke">
+              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke"
+              pointer-events="none">
           ${escapeHtml(node.label)}
         </text>
 
         <circle class="graph-node-circle" data-id="${escapeHtml(node.id)}" cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
                 fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" />
 
-        ${node.raw ? "" : `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20" fill="${fillColor}" rx="4" ry="4" />`}
+        ${node.raw ? "" : `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20" fill="${fillColor}" rx="4" ry="4" pointer-events="none" />`}
 
         <text class="nodeNumber" x="${node.x}" y="${node.y}"
               text-anchor="middle" font-size="13" font-weight="700"
               fill="${textColor}"
-              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke">
+              stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke"
+              pointer-events="none">
           ${node.raw ? "" : Math.ceil(node.machines)}
         </text>
       </g>
@@ -371,7 +382,135 @@ function renderGraph(nodes, links, rootItem) {
       </div>
     </div>
   `;
+
   return svg;
+}
+
+// ===============================
+// highlightOutgoing (updated)
+// - STRICT: only immediate inputs (no cascade)
+// - only circle and edges get pulse classes (no group/rect/text)
+// ===============================
+// highlightOutgoing (updated)
+// - STRICT: only immediate inputs (no cascade)
+// - only circle and edges get pulse classes (no group/rect/text)
+function highlightOutgoing(nodeId, svg) {
+  if (!svg || !nodeId) return;
+  // Clear previous pulses
+  svg.querySelectorAll('.pulse-origin, .pulse-node, .pulse-edge').forEach(el => {
+    el.classList.remove('pulse-origin', 'pulse-node', 'pulse-edge');
+  });
+
+  // Mark origin circle only (do not add class to group or rect)
+  const originCircle = svg.querySelector(`circle.graph-node-circle[data-id="${CSS.escape(nodeId)}"]`);
+  if (originCircle) originCircle.classList.add('pulse-origin');
+
+  // Find outgoing edges from this node (consumer -> its inputs)
+  const outgoing = Array.from(svg.querySelectorAll(`line.graph-edge[data-from="${CSS.escape(nodeId)}"]`));
+  outgoing.forEach((edgeEl, idx) => {
+    // highlight the edge
+    edgeEl.classList.add('pulse-edge');
+
+    // highlight the target/input circle only (no group/rect)
+    const toId = edgeEl.getAttribute('data-to');
+    const targetCircle = svg.querySelector(`circle.graph-node-circle[data-id="${CSS.escape(toId)}"]`);
+    if (targetCircle) targetCircle.classList.add('pulse-node');
+  });
+
+  // Done — no BFS, no further propagation
+}
+
+// ===============================
+// attachNodePointerHandlers (updated)
+// - group-level handlers so clicking anywhere inside group (label, number, rect, circle) triggers
+// - pointer-events on label/number/rect are none (see renderGraph) so events hit group/circle reliably
+// - uses pointer capture and threshold to distinguish drag vs click
+// ===============================
+// attachNodePointerHandlers (updated)
+// - group-level handlers so clicking anywhere inside group (label, number, rect, circle) triggers
+// - pointer-events on label/number/rect are none (see renderGraph) so events hit group/circle reliably
+// - uses pointer capture and threshold to distinguish drag vs click
+function attachNodePointerHandlers(wrapper) {
+  if (!wrapper) return;
+  const svg = wrapper.querySelector('svg.graphSVG');
+  if (!svg) return;
+
+  // Groups are focusable and receive pointer events
+  const groups = Array.from(svg.querySelectorAll('g.graph-node[data-id]'));
+
+  groups.forEach(group => {
+    let startX = null;
+    let startY = null;
+    let isDragging = false;
+    let pointerId = null;
+
+    function getThreshold(ev) {
+      return (ev && ev.pointerType === 'touch') ? TOUCH_THRESHOLD_PX : DRAG_THRESHOLD_PX;
+    }
+
+    function onPointerDown(ev) {
+      // stop propagation so global pan doesn't start for this pointer
+      ev.stopPropagation();
+      try { group.setPointerCapture(ev.pointerId); } catch (e) {}
+      pointerId = ev.pointerId;
+      startX = ev.clientX;
+      startY = ev.clientY;
+      isDragging = false;
+    }
+
+    function onPointerMove(ev) {
+      if (pointerId === null || ev.pointerId !== pointerId) return;
+      if (startX === null) return;
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!isDragging && Math.hypot(dx, dy) > getThreshold(ev)) {
+        isDragging = true;
+      }
+    }
+
+    function onPointerUp(ev) {
+      if (pointerId === null || ev.pointerId !== pointerId) return;
+      try { group.releasePointerCapture(ev.pointerId); } catch (e) {}
+      if (!isDragging) {
+        const nodeId = group.getAttribute('data-id');
+        // highlight only immediate inputs (outgoing edges)
+        highlightOutgoing(nodeId, svg);
+      }
+      startX = startY = null;
+      isDragging = false;
+      pointerId = null;
+      ev.stopPropagation();
+    }
+
+    // Remove previous listeners to avoid duplicates
+    group.removeEventListener('pointerdown', onPointerDown);
+    group.removeEventListener('pointermove', onPointerMove);
+    group.removeEventListener('pointerup', onPointerUp);
+
+    group.addEventListener('pointerdown', onPointerDown);
+    group.addEventListener('pointermove', onPointerMove);
+    group.addEventListener('pointerup', onPointerUp);
+
+    // keyboard support on group
+    group.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        const nodeId = group.getAttribute('data-id');
+        highlightOutgoing(nodeId, svg);
+      }
+    });
+  });
+
+  // clicking outside clears pulses
+  function onDocClick(e) {
+    if (!svg.contains(e.target)) {
+      svg.querySelectorAll('.pulse-origin, .pulse-node, .pulse-edge').forEach(el => {
+        el.classList.remove('pulse-origin', 'pulse-node', 'pulse-edge');
+      });
+    }
+  }
+  document.removeEventListener('click', onDocClick);
+  document.addEventListener('click', onDocClick);
 }
 
 /* ===============================
