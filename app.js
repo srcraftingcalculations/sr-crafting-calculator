@@ -251,12 +251,16 @@ function buildGraphData(chain, rootItem) {
    =============================== */
 
 /* Layout: assign x,y by depth and stable ordering */
+// Orientation-aware layout: depth -> primary axis, index -> secondary axis
+// Set ORIENTATION = 'tb' for top->bottom or 'lr' for left->right near your tunables.
 function buildInitialLayout(nodes, links) {
   const columns = {};
   for (const node of nodes) {
     if (!columns[node.depth]) columns[node.depth] = [];
     columns[node.depth].push(node);
   }
+
+  // Stable ordering per layer to reduce crossings
   for (const [depth, colNodes] of Object.entries(columns)) {
     colNodes.sort((a, b) => {
       const aOut = links.filter(l => l.to === a.id).length;
@@ -264,10 +268,26 @@ function buildInitialLayout(nodes, links) {
       if (bOut !== aOut) return bOut - aOut;
       return (a.label || a.id).localeCompare(b.label || b.id);
     });
-    colNodes.forEach((node, i) => {
-      node.x = depth * GRAPH_COL_WIDTH + 100;
-      node.y = i * GRAPH_ROW_HEIGHT + 100;
-    });
+  }
+
+  // Layout: map depth -> primary axis, index -> secondary axis
+  // When ORIENTATION === 'lr': depth -> x, index -> y (original behavior)
+  // When ORIENTATION === 'tb': depth -> y, index -> x (vertical flow)
+  if (typeof ORIENTATION === 'undefined' || ORIENTATION === 'lr') {
+    for (const [depth, colNodes] of Object.entries(columns)) {
+      colNodes.forEach((node, i) => {
+        node.x = Number(depth) * GRAPH_COL_WIDTH + 100;
+        node.y = i * GRAPH_ROW_HEIGHT + 100;
+      });
+    }
+  } else {
+    // 'tb' orientation: use GRAPH_COL_WIDTH as vertical spacing and GRAPH_ROW_HEIGHT as horizontal spacing
+    for (const [depth, colNodes] of Object.entries(columns)) {
+      colNodes.forEach((node, i) => {
+        node.y = Number(depth) * GRAPH_COL_WIDTH + 100;
+        node.x = i * GRAPH_ROW_HEIGHT + 100;
+      });
+    }
   }
 }
 
