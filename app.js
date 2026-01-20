@@ -276,6 +276,7 @@ function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
   const isDark = document.body.classList.contains("dark-mode");
 
+  // Layout columns/rows (same as before)
   const columns = {};
   for (const node of nodes) {
     if (!columns[node.depth]) columns[node.depth] = [];
@@ -298,12 +299,26 @@ function renderGraph(nodes, links, rootItem) {
     });
   }
 
-  const maxX = nodes.length ? Math.max(...nodes.map(n => n.x)) : 0;
-  const maxY = nodes.length ? Math.max(...nodes.map(n => n.y)) : 0;
+  // Compute raw bounds of all drawn elements
+  const xs = nodes.map(n => n.x);
+  const ys = nodes.map(n => n.y);
+  const minX = nodes.length ? Math.min(...xs) : 0;
+  const maxX = nodes.length ? Math.max(...xs) : 0;
+  const minY = nodes.length ? Math.min(...ys) : 0;
+  const maxY = nodes.length ? Math.max(...ys) : 0;
 
-  const svgWidth = Math.max(800, maxX + 200);
-  const svgHeight = Math.max(300, maxY + 200);
+  // Logical content bbox (include node radius and a little margin)
+  const contentPad = 48; // extra space around nodes so panning doesn't clip
+  const contentX = minX - nodeRadius - contentPad;
+  const contentY = minY - nodeRadius - contentPad;
+  const contentW = (maxX - minX) + (nodeRadius * 2) + contentPad * 2;
+  const contentH = (maxY - minY) + (nodeRadius * 2) + contentPad * 2;
 
+  // Ensure sensible minimums
+  const svgWidth = Math.max(800, Math.ceil(contentW + 200));
+  const svgHeight = Math.max(300, Math.ceil(contentH + 200));
+
+  // Build inner SVG shapes (lines + nodes)
   let inner = '';
 
   for (const link of links) {
@@ -355,8 +370,9 @@ function renderGraph(nodes, links, rootItem) {
     `;
   }
 
+  // Controls HTML is rendered outside the SVG viewport visually (fixed by CSS/JS)
   const controlsHtml = `
-    <div class="graphControls">
+    <div class="graphControls" aria-hidden="false">
       <button class="zoomBtn" data-action="zoomOut">−</button>
       <input type="range" class="zoomSlider" min="0.25" max="3" step="0.05" value="1" />
       <button class="zoomBtn" data-action="zoomIn">+</button>
@@ -364,13 +380,20 @@ function renderGraph(nodes, links, rootItem) {
     </div>
   `;
 
+  // Use viewBox equal to the content bbox so auto-fit centers the content.
+  // We offset the viewBox origin to contentX/contentY so transforms are relative to content.
+  const viewBoxX = Math.floor(contentX);
+  const viewBoxY = Math.floor(contentY);
+  const viewBoxW = Math.ceil(contentW);
+  const viewBoxH = Math.ceil(contentH);
+
   const svg = `
-    <div class="graphWrapper">
+    <div class="graphWrapper" data-vb="${viewBoxX},${viewBoxY},${viewBoxW},${viewBoxH}">
       ${controlsHtml}
       <div class="graphViewport">
         <svg xmlns="http://www.w3.org/2000/svg"
              class="graphSVG"
-             viewBox="0 0 ${svgWidth} ${svgHeight}"
+             viewBox="${viewBoxX} ${viewBoxY} ${viewBoxW} ${viewBoxH}"
              preserveAspectRatio="xMidYMid meet">
           <g id="zoomLayer">
             ${inner}
@@ -395,6 +418,7 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
   const btns = containerEl.querySelectorAll('.zoomBtn');
   const controlsEl = containerEl.querySelector('.graphControls');
 
+  // Pin controls outside the graph viewport (fixed center)
   function pinControls() {
     if (!controlsEl) return;
     controlsEl.style.position = 'fixed';
@@ -402,6 +426,7 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     controlsEl.style.transform = 'translateX(-50%)';
     controlsEl.style.zIndex = 9999;
     controlsEl.style.pointerEvents = 'auto';
+    // place controls just below top chrome but above graph area
     const wrapperRect = containerEl.getBoundingClientRect();
     const desiredTop = Math.max(12, wrapperRect.top + 8);
     controlsEl.style.top = `${desiredTop}px`;
@@ -421,6 +446,7 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     controlsEl.style.top = `${desiredTop}px`;
   }
 
+  // State
   let scale = 1;
   let tx = 0;
   let ty = 0;
@@ -428,57 +454,67 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
   let startX = 0;
   let startY = 0;
 
-  function getViewportRect() {
-    return svg.getBoundingClientRect();
-  }
-  function getLayerBBox() {
+  // Read padded content bbox from the viewBox (renderGraph stored it there)
+  function getContentBBox() {
+    // Prefer the explicit viewBox on the SVG (content bbox)
+    const vb = svg.viewBox.baseVal;
+    if (vb && vb.width && vb.height) {
+      return { x: vb.x, y: vb.y, width: vb.width, height: vb.height };
+    }
+    // fallback to group bbox
     try {
       return zoomLayer.getBBox();
     } catch (e) {
-      const vb = svg.viewBox.baseVal;
-      return { x: 0, y: 0, width: vb.width || svg.clientWidth, height: vb.height || svg.clientHeight };
+      return { x: 0, y: 0, width: svg.clientWidth, height: svg.clientHeight };
     }
   }
 
-  function clampTranslation(proposedTx, proposedTy, proposedScale) {
-    const bbox = getLayerBBox();
-    const view = getViewportRect();
-
+  // viewport in SVG coords
+  function getViewSizeInSvgCoords() {
+    const rect = svg.getBoundingClientRect();
     const ptTL = svg.createSVGPoint(); ptTL.x = 0; ptTL.y = 0;
-    const ptBR = svg.createSVGPoint(); ptBR.x = view.width; ptBR.y = view.height;
+    const ptBR = svg.createSVGPoint(); ptBR.x = rect.width; ptBR.y = rect.height;
     const svgTL = ptTL.matrixTransform(svg.getScreenCTM().inverse());
     const svgBR = ptBR.matrixTransform(svg.getScreenCTM().inverse());
-    const viewW = svgBR.x - svgTL.x;
-    const viewH = svgBR.y - svgTL.y;
+    return { width: svgBR.x - svgTL.x, height: svgBR.y - svgTL.y };
+  }
+
+  // Clamp translation so content remains at least partially visible.
+  // Uses content bbox (already padded) so panning won't cut nodes.
+  function clampTranslation(proposedTx, proposedTy, proposedScale) {
+    const bbox = getContentBBox();
+    const view = getViewSizeInSvgCoords();
 
     const layerW = bbox.width * proposedScale;
     const layerH = bbox.height * proposedScale;
 
-    const minTxLarge = viewW - layerW - bbox.x * proposedScale;
+    // When layer larger than view: clamp to keep edges visible
+    const minTxLarge = view.width - layerW - bbox.x * proposedScale;
     const maxTxLarge = -bbox.x * proposedScale;
-    const minTyLarge = viewH - layerH - bbox.y * proposedScale;
+    const minTyLarge = view.height - layerH - bbox.y * proposedScale;
     const maxTyLarge = -bbox.y * proposedScale;
 
-    const overlapFraction = 0.15;
-    const allowedExtraX = Math.max((viewW - layerW) * (1 - overlapFraction), 0);
-    const allowedExtraY = Math.max((viewH - layerH) * (1 - overlapFraction), 0);
+    // When layer smaller than view: allow limited nudge around center
+    const overlapFraction = 0.12; // keep at least 12% overlap
+    const allowedExtraX = Math.max((view.width - layerW) * (1 - overlapFraction), 0);
+    const allowedExtraY = Math.max((view.height - layerH) * (1 - overlapFraction), 0);
 
     let clampedTx = proposedTx;
     let clampedTy = proposedTy;
 
-    if (layerW > viewW) {
+    if (layerW > view.width) {
       clampedTx = Math.min(maxTxLarge, Math.max(minTxLarge, proposedTx));
     } else {
-      const centerTx = (viewW - layerW) / 2 - bbox.x * proposedScale;
+      const centerTx = (view.width - layerW) / 2 - bbox.x * proposedScale;
       const minTxSmall = centerTx - allowedExtraX / 2;
       const maxTxSmall = centerTx + allowedExtraX / 2;
       clampedTx = Math.min(maxTxSmall, Math.max(minTxSmall, proposedTx));
     }
 
-    if (layerH > viewH) {
+    if (layerH > view.height) {
       clampedTy = Math.min(maxTyLarge, Math.max(minTyLarge, proposedTy));
     } else {
-      const centerTy = (viewH - layerH) / 2 - bbox.y * proposedScale;
+      const centerTy = (view.height - layerH) / 2 - bbox.y * proposedScale;
       const minTySmall = centerTy - allowedExtraY / 2;
       const maxTySmall = centerTy + allowedExtraY / 2;
       clampedTy = Math.min(maxTySmall, Math.max(minTySmall, proposedTy));
@@ -513,6 +549,7 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     applyTransform();
   }
 
+  // Buttons
   btns.forEach(b => {
     b.addEventListener('click', () => {
       const action = b.dataset.action;
@@ -546,6 +583,7 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     });
   }
 
+  // Wheel zoom
   svg.addEventListener('wheel', (ev) => {
     ev.preventDefault();
     const delta = -ev.deltaY;
@@ -554,6 +592,7 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     zoomAt(newScale, ev.clientX, ev.clientY);
   }, { passive: false });
 
+  // Pan (left click always pans)
   svg.addEventListener('mousedown', (ev) => {
     if (ev.button !== 0) return;
     isPanning = true;
@@ -587,6 +626,7 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     svg.style.cursor = 'grab';
   });
 
+  // Touch handlers (pinch + pan)
   let lastTouchDist = null;
   let lastTouchCenter = null;
 
@@ -639,16 +679,10 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
 
   svg.style.cursor = 'grab';
 
+  // Auto-fit and center using the padded content bbox
   function computeAutoFit() {
-    const bbox = getLayerBBox();
-    const view = getViewportRect();
-
-    const ptTL = svg.createSVGPoint(); ptTL.x = 0; ptTL.y = 0;
-    const ptBR = svg.createSVGPoint(); ptBR.x = view.width; ptBR.y = view.height;
-    const svgTL = ptTL.matrixTransform(svg.getScreenCTM().inverse());
-    const svgBR = ptBR.matrixTransform(svg.getScreenCTM().inverse());
-    const viewW = svgBR.x - svgTL.x;
-    const viewH = svgBR.y - svgTL.y;
+    const bbox = getContentBBox();
+    const view = getViewSizeInSvgCoords();
 
     if (bbox.width === 0 || bbox.height === 0) {
       scale = 1; tx = 0; ty = 0;
@@ -657,16 +691,16 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
     }
 
     const pad = 0.92;
-    const scaleX = (viewW * pad) / bbox.width;
-    const scaleY = (viewH * pad) / bbox.height;
+    const scaleX = (view.width * pad) / bbox.width;
+    const scaleY = (view.height * pad) / bbox.height;
     const fitScale = Math.min(scaleX, scaleY);
 
     scale = Math.min(3, Math.max(0.25, fitScale));
 
     const layerW = bbox.width * scale;
     const layerH = bbox.height * scale;
-    tx = (viewW - layerW) / 2 - bbox.x * scale;
-    ty = (viewH - layerH) / 2 - bbox.y * scale;
+    tx = (view.width - layerW) / 2 - bbox.x * scale;
+    ty = (view.height - layerH) / 2 - bbox.y * scale;
 
     applyTransform();
     pinControls();
@@ -677,9 +711,7 @@ function setupGraphZoom(containerEl, { autoFit = true } = {}) {
   window.addEventListener('resize', onScrollOrResize);
 
   if (autoFit) {
-    requestAnimationFrame(() => {
-      computeAutoFit();
-    });
+    requestAnimationFrame(() => computeAutoFit());
   } else {
     applyTransform();
     pinControls();

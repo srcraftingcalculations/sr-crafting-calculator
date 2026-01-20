@@ -159,6 +159,8 @@ table td {
 /* ============================
    Graph wrapper: auto-fit + pan/zoom
    (initially no scrollbars; panning via transform)
+   The SVG viewBox is set to a padded content bbox so panning/zooming
+   never clips nodes. Controls are fixed outside the graph viewport.
 ============================ */
 .graphWrapper {
   box-sizing: border-box;
@@ -183,6 +185,7 @@ table td {
   display: block;
   user-select: none;
   -webkit-user-select: none;
+  -ms-user-select: none;
 }
 
 /* Controls row (visual styling) */
@@ -197,6 +200,7 @@ table td {
   border-radius: 8px;
   box-shadow: 0 6px 18px rgba(0,0,0,0.08);
   pointer-events: auto;
+  z-index: 9999;
 }
 
 /* When JS pins controls, it sets inline position styles.
@@ -310,4 +314,19 @@ body.dark .toast {
 .toast.show {
   opacity: 1;
   transform: translateY(0);
+}
+
+/* ============================
+   Accessibility & small tweaks
+============================ */
+/* Make zoom controls keyboard-focus friendly */
+.graphControls .zoomBtn:focus,
+.graphControls .zoomSlider:focus {
+  outline: 2px solid rgba(0, 120, 215, 0.6);
+  outline-offset: 2px;
+}
+
+/* Reduce motion for users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
 }
