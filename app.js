@@ -749,168 +749,386 @@ function renderGraph(nodes, links, rootItem) {
   const ANCHOR_RADIUS = 5;
   const ANCHOR_OFFSET = 18;
 
+  const ARROW_HALF_WIDTH = 5;
+  const ARROW_HEIGHT = 8;
+  const ARROW_CENTER_ADJUST = ARROW_HEIGHT / 3;
+  const ARROW_GAP_FROM_LABEL = 6;
+  const UP_ARROW_EXTRA_LIFT = 4;
+
+  const H_ARROW_HALF_HEIGHT = 5;
+  const H_ARROW_WIDTH = 8;
+
   const LABEL_OFFSET = 6;
 
-  const BYPASS_RADIUS = 5;
-  const BYPASS_Y_OFFSET = 34;
-  const BYPASS_X_INSET = 10;
+  function roundCoord(v) { return Math.round(v * 100) / 100; }
 
-  const defaultLineColor = isDarkMode() ? "#dcdcdc" : "#444";
-
-  /* ===============================
-     Normalize node defaults
-     =============================== */
-  for (const n of nodes) {
-    n.depth ??= 0;
-    n.machines ??= 0;
-    n.hasInputAnchor ??= true;
-    n.hasOutputAnchor ??= true;
+  function anchorRightPos(node) {
+    return {
+      x: roundCoord(node.x + nodeRadius + ANCHOR_OFFSET),
+      y: roundCoord(node.y)
+    };
   }
 
-  /* ===============================
-     Normalize depths → columns
-     =============================== */
-  const uniqueDepths = [...new Set(nodes.map(n => n.depth))].sort((a,b)=>a-b);
+  function anchorLeftPos(node) {
+    return {
+      x: roundCoord(node.x - nodeRadius - ANCHOR_OFFSET),
+      y: roundCoord(node.y)
+    };
+  }
+
+  // ---------------------------------
+  // Defaults
+  // ---------------------------------
+  for (const n of nodes) {
+    if (typeof n.hasInputAnchor === 'undefined') n.hasInputAnchor = true;
+    if (typeof n.hasOutputAnchor === 'undefined') n.hasOutputAnchor = true;
+    if (typeof n.depth === 'undefined') n.depth = 0;
+    if (typeof n.machines === 'undefined') n.machines = 0;
+  }
+
+  // ---------------------------------
+  // Normalize depths
+  // ---------------------------------
+  const uniqueDepths = [...new Set(nodes.map(n => Number(n.depth) || 0))].sort((a,b)=>a-b);
   const depthMap = new Map(uniqueDepths.map((d,i)=>[d,i]));
-  nodes.forEach(n => n.depth = depthMap.get(n.depth));
+  nodes.forEach(n => n.depth = depthMap.get(Number(n.depth)) ?? 0);
 
   const columns = {};
   for (const n of nodes) {
-    (columns[n.depth] ??= []).push(n);
+    if (!columns[n.depth]) columns[n.depth] = [];
+    columns[n.depth].push(n);
   }
 
-  Object.values(columns).forEach((col, colIdx) => {
-    col.sort((a,b)=>String(a.label||a.id).localeCompare(String(b.label||b.id)));
-    col.forEach((n,i)=>{
-      n.x = roundCoord(colIdx * MACHINE_COL_WIDTH + 100);
-      n.y = roundCoord(i * GRAPH_ROW_HEIGHT + 100);
+  const depthsSorted = Object.keys(columns).map(Number).sort((a,b)=>a-b);
+  const depthIndex = new Map(depthsSorted.map((d,i)=>[d,i]));
+
+  for (const [depth, colNodes] of Object.entries(columns)) {
+    const idx = depthIndex.get(Number(depth)) ?? 0;
+    colNodes.sort((a,b)=>String(a.label||a.id).localeCompare(String(b.label||b.id)));
+    colNodes.forEach((node,i)=>{
+      node.x = roundCoord(idx * MACHINE_COL_WIDTH + 100);
+      node.y = roundCoord(i * GRAPH_ROW_HEIGHT + 100);
     });
-  });
+  }
 
-  /* ===============================
-     Bypass detection
-     =============================== */
-  const bypassOutputDepths = new Set();
-  const bypassInputDepths  = new Set();
-  const topBypassNodeByDepth = {};
+  // ---------------------------------
+  // ViewBox
+  // ---------------------------------
+  const xs = nodes.map(n=>n.x), ys = nodes.map(n=>n.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
 
-  for (const link of links) {
-    const from = nodes.find(n => n.id === link.source);
-    const to   = nodes.find(n => n.id === link.target);
-    if (!from || !to) continue;
+  const contentX = minX - nodeRadius - GRAPH_CONTENT_PAD;
+  const contentY = minY - nodeRadius - GRAPH_CONTENT_PAD;
+  const contentW = (maxX - minX) + nodeRadius*2 + GRAPH_CONTENT_PAD*2;
+  const contentH = (maxY - minY) + nodeRadius*2 + GRAPH_CONTENT_PAD*2;
 
-    if (to.depth - from.depth > 1) {
-      bypassOutputDepths.add(from.depth);
-      bypassInputDepths.add(to.depth);
+  const defaultLineColor = isDarkMode() ? '#dcdcdc' : '#444';
 
-      if (!topBypassNodeByDepth[from.depth] || from.y < topBypassNodeByDepth[from.depth].y) {
-        topBypassNodeByDepth[from.depth] = from;
-      }
-      if (!topBypassNodeByDepth[to.depth] || to.y < topBypassNodeByDepth[to.depth].y) {
-        topBypassNodeByDepth[to.depth] = to;
-      }
+  let inner = '';
+
+  // ---------------------------------
+  // Helper anchors
+  // ---------------------------------
+  const rightHelpers = [];
+  const leftHelpers = [];
+
+  for (const node of nodes) {
+    const minDepth = Math.min(...nodes.map(n=>n.depth));
+    const maxDepth = Math.max(...nodes.map(n=>n.depth));
+
+    if (node.hasOutputAnchor && node.depth !== maxDepth) {
+      const a = anchorRightPos(node);
+      rightHelpers.push({ ...a, depth: node.depth });
+
+      inner += `
+        <line x1="${node.x + nodeRadius}" y1="${node.y}"
+              x2="${a.x}" y2="${a.y}"
+              stroke="${defaultLineColor}" stroke-width="1.2" />
+        <circle cx="${a.x}" cy="${a.y}"
+                r="${ANCHOR_RADIUS}"
+                fill="var(--bypass-fill)"
+                stroke="var(--bypass-stroke)"
+                stroke-width="1.2"/>
+      `;
+    }
+
+    if (node.hasInputAnchor && node.depth !== minDepth) {
+      const a = anchorLeftPos(node);
+      leftHelpers.push({ ...a, depth: node.depth });
+
+      inner += `
+        <line x1="${node.x - nodeRadius}" y1="${node.y}"
+              x2="${a.x}" y2="${a.y}"
+              stroke="${defaultLineColor}" stroke-width="1.2" />
+        <circle cx="${a.x}" cy="${a.y}"
+                r="${ANCHOR_RADIUS}"
+                fill="var(--bypass-fill)"
+                stroke="var(--bypass-stroke)"
+                stroke-width="1.2"/>
+      `;
     }
   }
 
-  /* ===============================
-     ViewBox (expanded for bypass)
-     =============================== */
-  const xs = nodes.map(n=>n.x);
-  const ys = nodes.map(n=>n.y);
+    // ---------------------------------
+    // Bypass detection (DOTS ONLY)
+    // ---------------------------------
+    const bypassOutputDepths = new Set();
+    const bypassInputDepths = new Set();
 
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
+    for (const link of links) {
+      const from = nodes.find(n => n.id === link.source);
+      const to   = nodes.find(n => n.id === link.target);
+      if (!from || !to) continue;
 
-  const baseX = minX - nodeRadius - GRAPH_CONTENT_PAD;
-  const baseY = minY - nodeRadius - GRAPH_CONTENT_PAD;
-  const baseW = (maxX - minX) + nodeRadius*2 + GRAPH_CONTENT_PAD*2;
-  const baseH = (maxY - minY) + nodeRadius*2 + GRAPH_CONTENT_PAD*2;
+      if (to.depth - from.depth > 1) {
+        bypassOutputDepths.add(from.depth);
+        bypassInputDepths.add(to.depth);
+      }
+    }
 
-  const bypassExtraTop =
-    (bypassOutputDepths.size || bypassInputDepths.size)
-      ? BYPASS_Y_OFFSET + BYPASS_RADIUS + 10
-      : 0;
+    // top-most node per column
+    const topBypassNodeByDepth = {};
 
-  const viewX = baseX;
-  const viewY = baseY - bypassExtraTop;
-  const viewW = baseW;
-  const viewH = baseH + bypassExtraTop;
+    // outputs
+    for (const link of links) {
+      const from = nodes.find(n => n.id === link.source);
+      const to   = nodes.find(n => n.id === link.target);
+      if (!from || !to) continue;
 
-  /* ===============================
-     SVG content
-     =============================== */
-  let inner = "";
+      if (to.depth - from.depth > 1) {
+        const dOut = from.depth;
+        const dIn  = to.depth;
 
-  /* ---- bypass dots only ---- */
-  for (const depth of bypassOutputDepths) {
-    const n = topBypassNodeByDepth[depth];
-    if (!n) continue;
+        if (!topBypassNodeByDepth[dOut] || from.y < topBypassNodeByDepth[dOut].y) {
+          topBypassNodeByDepth[dOut] = from;
+        }
+
+        if (!topBypassNodeByDepth[dIn] || to.y < topBypassNodeByDepth[dIn].y) {
+          topBypassNodeByDepth[dIn] = to;
+        }
+      }
+    }
+
+  // ---------------------------------
+  // Vertical output spines
+  // ---------------------------------
+  const byX = {};
+  for (const h of rightHelpers) {
+    if (!byX[h.x]) byX[h.x] = [];
+    byX[h.x].push(h);
+  }
+
+  for (const helpers of Object.values(byX)) {
+    if (helpers.length < 2) continue;
+    helpers.sort((a,b)=>a.y - b.y);
+
+    for (let i = 0; i < helpers.length - 1; i++) {
+      const x = helpers[i].x;
+      const y1 = helpers[i].y;
+      const y2 = helpers[i + 1].y;
+
+      inner += `
+        <line x1="${x}" y1="${y1}"
+              x2="${x}" y2="${y2}"
+              stroke="${defaultLineColor}" stroke-width="1.6" />
+      `;
+
+      const midY = (y1 + y2) / 2;
+      const arrowY =
+        midY +
+        ARROW_GAP_FROM_LABEL -
+        ARROW_CENTER_ADJUST -
+        UP_ARROW_EXTRA_LIFT;
+
+      inner += `
+        <polygon
+          points="
+            ${x},${arrowY - ARROW_HEIGHT}
+            ${x - ARROW_HALF_WIDTH},${arrowY}
+            ${x + ARROW_HALF_WIDTH},${arrowY}
+          "
+          fill="${defaultLineColor}" />
+      `;
+    }
+  }
+
+  // ---------------------------------
+  // Vertical input spines
+  // ---------------------------------
+  const byXInput = {};
+  for (const h of leftHelpers) {
+    if (!byXInput[h.x]) byXInput[h.x] = [];
+    byXInput[h.x].push(h);
+  }
+
+  for (const helpers of Object.values(byXInput)) {
+    if (helpers.length < 2) continue;
+    helpers.sort((a,b)=>a.y - b.y);
+
+    for (let i = 0; i < helpers.length - 1; i++) {
+      const x = helpers[i].x;
+      const y1 = helpers[i].y;
+      const y2 = helpers[i + 1].y;
+
+      inner += `
+        <line x1="${x}" y1="${y1}"
+              x2="${x}" y2="${y2}"
+              stroke="${defaultLineColor}" stroke-width="1.6" />
+      `;
+
+      const midY = (y1 + y2) / 2;
+      const arrowY =
+        midY -
+        ARROW_CENTER_ADJUST -
+        ARROW_GAP_FROM_LABEL;
+
+      inner += `
+        <polygon
+          points="
+            ${x},${arrowY + ARROW_HEIGHT}
+            ${x - ARROW_HALF_WIDTH},${arrowY}
+            ${x + ARROW_HALF_WIDTH},${arrowY}
+          "
+          fill="${defaultLineColor}" />
+      `;
+    }
+  }
+
+  // ---------------------------------
+  // HORIZONTAL TOP CONNECTIONS (RIGHT → LEFT)
+  // ---------------------------------
+  const rightTopByDepth = {};
+  const leftTopByDepth = {};
+
+  for (const h of rightHelpers) {
+    if (!rightTopByDepth[h.depth] || h.y < rightTopByDepth[h.depth].y) {
+      rightTopByDepth[h.depth] = h;
+    }
+  }
+
+  for (const h of leftHelpers) {
+    if (!leftTopByDepth[h.depth] || h.y < leftTopByDepth[h.depth].y) {
+      leftTopByDepth[h.depth] = h;
+    }
+  }
+
+  for (const d of Object.keys(rightTopByDepth).map(Number)) {
+    const from = rightTopByDepth[d];
+    const to = leftTopByDepth[d + 1];
+    if (!from || !to) continue;
+
+    const y = from.y;
+    const midX = (from.x + to.x) / 2;
 
     inner += `
-      <circle
-        cx="${n.x + nodeRadius + ANCHOR_OFFSET - BYPASS_X_INSET}"
-        cy="${n.y - BYPASS_Y_OFFSET}"
-        r="${BYPASS_RADIUS}"
-        fill="var(--bypass-fill)"
-        stroke="var(--bypass-stroke)"
-        stroke-width="1.4"/>
+      <line
+        x1="${from.x}" y1="${y}"
+        x2="${to.x}"   y2="${y}"
+        stroke="${defaultLineColor}"
+        stroke-width="1.6" />
+      <polygon
+        points="
+          ${midX + H_ARROW_WIDTH},${y}
+          ${midX},${y - H_ARROW_HALF_HEIGHT}
+          ${midX},${y + H_ARROW_HALF_HEIGHT}
+        "
+        fill="${defaultLineColor}" />
     `;
   }
 
-  for (const depth of bypassInputDepths) {
-    const n = topBypassNodeByDepth[depth];
-    if (!n) continue;
+    // ---------------------------------
+    // Bypass helper dots (NO LINES)
+    // ---------------------------------
+    const BYPASS_RADIUS = 5;
+    const BYPASS_Y_OFFSET = 34;
+    const BYPASS_X_INSET = 10;
 
-    inner += `
-      <circle
-        cx="${n.x - nodeRadius - ANCHOR_OFFSET + BYPASS_X_INSET}"
-        cy="${n.y - BYPASS_Y_OFFSET}"
-        r="${BYPASS_RADIUS}"
-        fill="var(--bypass-fill)"
-        stroke="var(--bypass-stroke)"
-        stroke-width="1.4"/>
-    `;
-  }
+    // Output-side bypass dots (above right helpers)
+    for (const depth of bypassOutputDepths) {
+      const node = topBypassNodeByDepth[depth];
+      if (!node) continue;
 
-  /* ---- nodes ---- */
+      const x = node.x + nodeRadius + ANCHOR_OFFSET - BYPASS_X_INSET;
+      const y = node.y - BYPASS_Y_OFFSET;
+
+      inner += `
+        <circle
+          cx="${x}"
+          cy="${y}"
+          r="${BYPASS_RADIUS}"
+          fill="var(--bypass-fill)"
+          stroke="var(--bypass-stroke)"
+          stroke-width="1.4"
+        />
+      `;
+    }
+
+    // Input-side bypass dots (above left helpers)
+    for (const depth of bypassInputDepths) {
+      const node = topBypassNodeByDepth[depth];
+      if (!node) continue;
+
+      const x = node.x - nodeRadius - ANCHOR_OFFSET + BYPASS_X_INSET;
+      const y = node.y - BYPASS_Y_OFFSET;
+
+      inner += `
+        <circle
+          cx="${x}"
+          cy="${y}"
+          r="${BYPASS_RADIUS}"
+          fill="var(--bypass-fill)"
+          stroke="var(--bypass-stroke)"
+          stroke-width="1.4"
+        />
+      `;
+    }
+
+  // ---------------------------------
+  // Nodes
+  // ---------------------------------
   for (const node of nodes) {
     const fillColor = node.raw
       ? "#f4d03f"
       : MACHINE_COLORS[node.building] || "#95a5a6";
 
     const label = String(node.label || node.id);
+
     const fontSize = 13;
     const padX = 10, padY = 6;
-    const width = Math.max(48, label.length * 7 + padX*2);
-    const height = fontSize + padY*2;
+    const width = Math.max(48, label.length * 7 + padX * 2);
+    const height = fontSize + padY * 2;
 
-    const count =
-      Number.isFinite(node.machines) && node.machines > 0
+    // Machine count shown inside node
+    const machineCount =
+      Number.isFinite(Number(node.machines)) && node.machines > 0
         ? Math.ceil(node.machines)
         : "";
 
     inner += `
-      <g class="graph-node" data-id="${escapeHtml(node.id)}">
+      <g class="graph-node" data-id="${escapeHtml(node.id)}" tabindex="0">
+        <!-- label box -->
         <rect
-          x="${node.x - width/2}"
+          x="${node.x - width / 2}"
           y="${node.y - nodeRadius - LABEL_OFFSET - height}"
           width="${width}"
           height="${height}"
           rx="6"
           fill="var(--label-box-fill)"
-          stroke="var(--label-box-stroke)"/>
+          stroke="var(--label-box-stroke)" />
+
         <text
           x="${node.x}"
-          y="${node.y - nodeRadius - LABEL_OFFSET - height/2}"
+          y="${node.y - nodeRadius - LABEL_OFFSET - height / 2}"
           text-anchor="middle"
           dy="0.35em"
           font-size="${fontSize}"
-          font-weight="700">
+          font-weight="700"
+          fill="var(--label-text-fill)">
           ${label}
         </text>
 
+        <!-- node circle -->
         <circle
           cx="${node.x}"
           cy="${node.y}"
@@ -919,16 +1137,26 @@ function renderGraph(nodes, links, rootItem) {
           stroke="#2c3e50"
           stroke-width="2"/>
 
-        ${count !== "" ? `
-          <text x="${node.x}" y="${node.y}" class="nodeNumber">${count}</text>
-        ` : ""}
+        <!-- machine count inside node -->
+        ${
+          machineCount !== ""
+            ? `
+            <text
+              x="${node.x}"
+              y="${node.y}"
+              class="nodeNumber">
+              ${machineCount}
+            </text>
+            `
+            : ""
+        }
       </g>
     `;
   }
 
   return `
     <div class="graphWrapper">
-      <svg class="graphSVG" viewBox="${viewX} ${viewY} ${viewW} ${viewH}">
+      <svg class="graphSVG" viewBox="${contentX} ${contentY} ${contentW} ${contentH}">
         <g id="zoomLayer">
           ${inner}
         </g>
