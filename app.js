@@ -935,7 +935,6 @@ function renderGraph(nodes, links, rootItem) {
       const midY = (y1 + y2) / 2;
       const arrowY =
         midY +
-        ARROW_VISUAL_OFFSET +
         ARROW_CENTER_ADJUST +
         ARROW_GAP_FROM_LABEL;
 
@@ -984,7 +983,6 @@ function renderGraph(nodes, links, rootItem) {
       const midY = (y1 + y2) / 2;
       const arrowY =
         midY -
-        ARROW_VISUAL_OFFSET -
         ARROW_CENTER_ADJUST -
         ARROW_GAP_FROM_LABEL;
 
