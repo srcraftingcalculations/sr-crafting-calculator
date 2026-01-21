@@ -787,37 +787,32 @@ function renderGraph(nodes, links, rootItem) {
 
   const nodeById = new Map(nodes.map(n => [n.id, n]));
 
-  // Normalize depths so leftmost column is 0 and columns increment by 1 to the right
-  // This remaps any sparse or tier-based depth values into sequential columns.
+  // Normalize depths
   const uniqueDepths = Array.from(new Set(nodes.map(n => Number.isFinite(Number(n.depth)) ? Number(n.depth) : 0)));
   uniqueDepths.sort((a,b) => a - b);
-  const depthMap = new Map(uniqueDepths.map((d, i) => [d, i])); // oldDepth -> normalizedIndex
-  // Apply normalized depth to nodes
-  nodes.forEach(n => {
-    const old = Number.isFinite(Number(n.depth)) ? Number(n.depth) : 0;
-    n.depth = depthMap.get(old) ?? 0;
-  });
+  const depthMap = new Map(uniqueDepths.map((d, i) => [d, i]));
+  nodes.forEach(n => n.depth = depthMap.get(Number(n.depth)) ?? 0);
 
-  // Rebuild columns using normalized depths
   const columns = {};
   for (const node of nodes) {
     if (!columns[node.depth]) columns[node.depth] = [];
     columns[node.depth].push(node);
   }
 
-  // Sorted list of normalized depths and index map
   const depthsSorted = Object.keys(columns).map(Number).sort((a,b)=>a-b);
   const _depthIndex = new Map(depthsSorted.map((d,i)=>[d,i]));
 
-  // Layout nodes in columns and rows
   for (const [depth, colNodes] of Object.entries(columns)) {
-    colNodes.sort((a,b) => String(a.label || a.id).localeCompare(String(b.label || b.id), undefined, { sensitivity: 'base' }));
+    colNodes.sort((a,b) => String(a.label || a.id).localeCompare(String(b.label || b.id)));
     const idx = _depthIndex.get(Number(depth)) ?? 0;
     colNodes.forEach((node, i) => {
       node.x = roundCoord(idx * MACHINE_COL_WIDTH + 100);
       node.y = roundCoord(i * GRAPH_ROW_HEIGHT + 100);
     });
   }
+
+  const minDepth = Math.min(...nodes.map(n => n.depth));
+  const maxDepth = Math.max(...nodes.map(n => n.depth));
 
   const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
   const minX = nodes.length ? Math.min(...xs) : 0;
@@ -903,36 +898,109 @@ function renderGraph(nodes, links, rootItem) {
 
   // Build spines
   let spineSvg = '';
-  for (let i=0;i<depthsSorted.length;i++){
+
+  // Arrow marker definition (added once)
+  spineSvg += `
+    <defs>
+      <marker id="spineArrow"
+        markerWidth="8"
+        markerHeight="8"
+        refX="7"
+        refY="4"
+        orient="auto"
+        markerUnits="strokeWidth">
+        <path d="M0,0 L8,4 L0,8 Z" fill="${isDarkMode() ? '#bdbdbd' : '#666666'}" />
+      </marker>
+    </defs>
+  `;
+
+  for (let i = 0; i < depthsSorted.length; i++) {
     const depth = depthsSorted[i];
     const colNodes = columns[depth] || [];
     const outputAnchors = [];
+
     for (const n of colNodes) {
       if (n.raw && n.depth === minDepth) continue;
       if ((n.hasOutputAnchor || (n.id === BBM_ID || n.label === BBM_ID)) && n.depth !== maxDepth) {
         outputAnchors.push(anchorRightPos(n));
       }
     }
+
     if (!outputAnchors.length) continue;
-    const ysAnch = outputAnchors.map(p=>p.y);
+
+    const ysAnch = outputAnchors.map(p => p.y);
     const topAnchorY = Math.min(...ysAnch);
     const bottomAnchorY = Math.max(...ysAnch);
     const spineX = outputAnchors[0].x;
-    spineSvg += `<line class="graph-spine-vertical" x1="${spineX}" y1="${bottomAnchorY}" x2="${spineX}" y2="${topAnchorY}" stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}" stroke-width="2" />`;
-    if (i+1 < depthsSorted.length) {
-      const nextDepth = depthsSorted[i+1];
+
+    // Vertical spine (no arrow)
+    spineSvg += `
+      <line
+        class="graph-spine-vertical"
+        x1="${spineX}"
+        y1="${bottomAnchorY}"
+        x2="${spineX}"
+        y2="${topAnchorY}"
+        stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
+        stroke-width="2"
+      />
+    `;
+
+    if (i + 1 < depthsSorted.length) {
+      const nextDepth = depthsSorted[i + 1];
       const nextColNodes = columns[nextDepth] || [];
       const nextInputs = [];
+
       for (const n of nextColNodes) {
         if (n.raw && n.depth === minDepth) continue;
-        if (n.hasInputAnchor && n.building !== 'Smelter') nextInputs.push(anchorLeftPos(n));
+        if (n.hasInputAnchor && n.building !== 'Smelter') {
+          nextInputs.push(anchorLeftPos(n));
+        }
       }
+
       if (nextInputs.length) {
-        const topInY = Math.min(...nextInputs.map(p=>p.y));
+        const topInY = Math.min(...nextInputs.map(p => p.y));
+        const bottomInY = Math.max(...nextInputs.map(p => p.y));
         const nextSpineX = nextInputs[0].x;
-        spineSvg += `<line class="graph-spine-horizontal" x1="${spineX}" y1="${topAnchorY}" x2="${nextSpineX}" y2="${topAnchorY}" stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}" stroke-width="2" />`;
-        spineSvg += `<line class="graph-spine-horizontal" x1="${nextSpineX}" y1="${topAnchorY}" x2="${nextSpineX}" y2="${topInY}" stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}" stroke-width="2" />`;
-        spineSvg += `<line class="graph-spine-vertical" x1="${nextSpineX}" y1="${topInY}" x2="${nextSpineX}" y2="${Math.max(...nextInputs.map(p=>p.y))}" stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}" stroke-width="2" />`;
+
+        // Horizontal spine WITH arrow (direction: left → right)
+        spineSvg += `
+          <line
+            class="graph-spine-horizontal"
+            x1="${spineX}"
+            y1="${topAnchorY}"
+            x2="${nextSpineX}"
+            y2="${topAnchorY}"
+            stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
+            stroke-width="2"
+            marker-end="url(#spineArrow)"
+          />
+        `;
+
+        // Vertical down into next column (no arrow)
+        spineSvg += `
+          <line
+            class="graph-spine-vertical"
+            x1="${nextSpineX}"
+            y1="${topAnchorY}"
+            x2="${nextSpineX}"
+            y2="${topInY}"
+            stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
+            stroke-width="2"
+          />
+        `;
+
+        spineSvg += `
+          <line
+            class="graph-spine-vertical"
+            x1="${nextSpineX}"
+            y1="${topInY}"
+            x2="${nextSpineX}"
+            y2="${bottomInY}"
+            stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
+            stroke-width="2"
+          />
+        `;
       }
     }
   }
@@ -940,6 +1008,21 @@ function renderGraph(nodes, links, rootItem) {
   // Start building inner SVG content
   let inner = `
     <defs>
+      <marker id="arrow-right" viewBox="0 0 10 10" refX="9" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0 L10 5 L0 10 Z" fill="var(--line-color)" />
+      </marker>
+
+      <marker id="arrow-up" viewBox="0 0 10 10" refX="5" refY="1"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 10 L5 0 L10 10 Z" fill="var(--line-color)" />
+      </marker>
+
+      <marker id="arrow-down" viewBox="0 0 10 10" refX="5" refY="9"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0 L5 10 L10 0 Z" fill="var(--line-color)" />
+      </marker>
+
       <filter id="labelBackdrop" x="-40%" y="-40%" width="180%" height="180%">
         <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="blurred" />
         <feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#000" flood-opacity="0.25" />
@@ -954,38 +1037,26 @@ function renderGraph(nodes, links, rootItem) {
     const lineColor = isDarkMode() ? '#dcdcdc' : '#444444';
     const rawLineColor = '#333333';
 
-    for (const link of links || []) {
-      const a = nodeById.get(link.from);
-      const b = nodeById.get(link.to);
-      if (!a || !b) continue;
+      for (const link of links || []) {
+        const a = nodeById.get(link.from);
+        const b = nodeById.get(link.to);
+        if (!a || !b) continue;
 
-      // Determine which side is raw. Prefer the explicit raw source (a.raw).
-      // If the link is reversed in data (consumer -> raw), flip it so we draw raw->consumer.
-      let src = null, dst = null;
-      if (a.raw && a.depth === minDepth) {
-        src = a; dst = b;
-      } else if (b.raw && b.depth === minDepth) {
-        // flipped link in data: treat b as source and a as destination
-        src = b; dst = a;
-      } else {
-        // neither endpoint qualifies as a raw in the far-left column; skip
-        continue;
+        let src = null, dst = null;
+        if (a.raw && a.depth === minDepth) { src = a; dst = b; }
+        else if (b.raw && b.depth === minDepth) { src = b; dst = a; }
+        else continue;
+
+        if (!(dst.depth === minDepth || dst.depth === minDepth + 1)) continue;
+
+        inner += `<line class="graph-edge direct-node-line"
+          x1="${src.x}" y1="${src.y}"
+          x2="${dst.x}" y2="${dst.y}"
+          stroke="${dst.building === 'Smelter' ? '#333333' : (isDarkMode() ? '#dcdcdc' : '#444444')}"
+          stroke-width="${dst.building === 'Smelter' ? 2.6 : 1.6}"
+          stroke-linecap="round"
+          marker-end="url(#arrow-right)" />`;
       }
-
-      // Destination must be in minDepth or minDepth+1 to be eligible
-      if (!(dst.depth === minDepth || dst.depth === (minDepth + 1))) continue;
-
-      const x1 = roundCoord(src.x);
-      const y1 = roundCoord(src.y);
-      const x2 = roundCoord(dst.x);
-      const y2 = roundCoord(dst.y);
-
-      const isRawDirect = (dst.building === 'Smelter' || dst.id === BBM_ID);
-      const stroke = isRawDirect ? rawLineColor : lineColor;
-      const width = isRawDirect ? 2.6 : 1.6;
-
-      inner += `<line class="graph-edge direct-node-line" data-from="${escapeHtml(src.id)}" data-to="${escapeHtml(dst.id)}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" />`;
-    }
   })();
 
   // Node-to-helper connectors and helper dots (do not add left helper for raw nodes in far-left)
