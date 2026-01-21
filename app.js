@@ -777,7 +777,7 @@ function renderGraph(nodes, links, rootItem) {
   function anchorRightPos(node) { return { x: roundCoord(node.x + nodeRadius + ANCHOR_OFFSET), y: roundCoord(node.y) }; }
   function anchorLeftPos(node)  { return { x: roundCoord(node.x - nodeRadius - ANCHOR_OFFSET), y: roundCoord(node.y) }; }
 
-  // Ensure defaults
+  // Defaults
   for (const n of nodes) {
     if (typeof n.hasInputAnchor === 'undefined') n.hasInputAnchor = true;
     if (typeof n.hasOutputAnchor === 'undefined') n.hasOutputAnchor = true;
@@ -785,464 +785,149 @@ function renderGraph(nodes, links, rootItem) {
     if (typeof n.machines === 'undefined') n.machines = 0;
   }
 
-  const nodeById = new Map(nodes.map(n => [n.id, n]));
-
   // Normalize depths
-  const uniqueDepths = Array.from(new Set(nodes.map(n => Number.isFinite(Number(n.depth)) ? Number(n.depth) : 0)));
-  uniqueDepths.sort((a,b) => a - b);
-  const depthMap = new Map(uniqueDepths.map((d, i) => [d, i]));
+  const uniqueDepths = Array.from(new Set(nodes.map(n => Number(n.depth) || 0))).sort((a,b)=>a-b);
+  const depthMap = new Map(uniqueDepths.map((d,i)=>[d,i]));
   nodes.forEach(n => n.depth = depthMap.get(Number(n.depth)) ?? 0);
 
   const columns = {};
-  for (const node of nodes) {
-    if (!columns[node.depth]) columns[node.depth] = [];
-    columns[node.depth].push(node);
+  for (const n of nodes) {
+    if (!columns[n.depth]) columns[n.depth] = [];
+    columns[n.depth].push(n);
   }
 
   const depthsSorted = Object.keys(columns).map(Number).sort((a,b)=>a-b);
-  const _depthIndex = new Map(depthsSorted.map((d,i)=>[d,i]));
+  const depthIndex = new Map(depthsSorted.map((d,i)=>[d,i]));
 
   for (const [depth, colNodes] of Object.entries(columns)) {
-    colNodes.sort((a,b) => String(a.label || a.id).localeCompare(String(b.label || b.id)));
-    const idx = _depthIndex.get(Number(depth)) ?? 0;
-    colNodes.forEach((node, i) => {
+    const idx = depthIndex.get(Number(depth)) ?? 0;
+    colNodes.sort((a,b)=>String(a.label||a.id).localeCompare(String(b.label||b.id)));
+    colNodes.forEach((node,i)=>{
       node.x = roundCoord(idx * MACHINE_COL_WIDTH + 100);
       node.y = roundCoord(i * GRAPH_ROW_HEIGHT + 100);
     });
   }
 
-  const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
-  const minX = nodes.length ? Math.min(...xs) : 0;
-  const maxX = nodes.length ? Math.max(...xs) : 0;
-  const minY = nodes.length ? Math.min(...ys) : 0;
-  const maxY = nodes.length ? Math.max(...ys) : 0;
+  // ViewBox calc
+  const xs = nodes.map(n=>n.x), ys = nodes.map(n=>n.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+
   const contentX = minX - nodeRadius - GRAPH_CONTENT_PAD;
   const contentY = minY - nodeRadius - GRAPH_CONTENT_PAD;
-  const contentW = (maxX - minX) + (nodeRadius*2) + GRAPH_CONTENT_PAD*2;
-  const contentH = (maxY - minY) + (nodeRadius*2) + GRAPH_CONTENT_PAD*2;
+  const contentW = (maxX - minX) + nodeRadius*2 + GRAPH_CONTENT_PAD*2;
+  const contentH = (maxY - minY) + nodeRadius*2 + GRAPH_CONTENT_PAD*2;
 
-  const minDepth = nodes.length ? Math.min(...nodes.map(n => n.depth)) : 0;
-  const maxDepth = nodes.length ? Math.max(...nodes.map(n => n.depth)) : 0;
+  // ---------- SVG CONTENT ----------
+  let inner = '';
 
-  // Compute helper positions and bypass needs (helpers for non-raw nodes)
-  const willRenderAnchors = [];
-  for (const node of nodes) {
-    const isSmelter = (node.building === 'Smelter');
-    const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
-    const rawRightOnly = !!(node.raw && node.depth !== minDepth);
-
-    // DO NOT render left helper/anchor for raw nodes that sit in the far-left column
-    if (node.hasInputAnchor && !isSmelter && !isBBM && !node.raw) {
-      willRenderAnchors.push({ side:'left', node, pos: anchorLeftPos(node) });
-    }
-    if ((node.hasOutputAnchor || rawRightOnly || isBBM) && node.depth !== maxDepth) {
-      willRenderAnchors.push({ side:'right', node, pos: anchorRightPos(node) });
-    }
-  }
-
-  const uniqueYs = Array.from(new Set(willRenderAnchors.map(a => a.pos.y))).sort((a,b)=>a-b);
-  let shortestGap = nodeRadius + ANCHOR_OFFSET;
-  if (uniqueYs.length >= 2) {
-    let sg = Infinity;
-    for (let i=1;i<uniqueYs.length;i++){
-      const gap = Math.abs(uniqueYs[i]-uniqueYs[i-1]);
-      if (gap>0 && gap<sg) sg = gap;
-    }
-    if (isFinite(sg)) shortestGap = sg;
-  }
-  shortestGap = roundCoord(shortestGap);
-
-  const needsOutputBypass = new Map();
-  for (const depth of depthsSorted) {
-    const colNodes = columns[depth] || [];
-    const outputs = colNodes.filter(n => !(n.raw && n.depth === minDepth) && (n.hasOutputAnchor || (n.id === BBM_ID || n.label === BBM_ID)) && n.depth !== maxDepth);
-    if (!outputs.length) continue;
-    const consumerDepths = new Set();
-    for (const outNode of outputs) {
-      for (const link of links) {
-        if (link.to !== outNode.id) continue;
-        const consumer = nodeById.get(link.from);
-        if (!consumer || typeof consumer.depth !== 'number') continue;
-        if ((consumer.depth - outNode.depth) > 1) consumerDepths.add(consumer.depth);
-      }
-    }
-    if (!consumerDepths.size) continue;
-    const topOutputNode = outputs.reduce((a,b)=> a.y < b.y ? a : b);
-    const helperCenter = anchorRightPos(topOutputNode);
-    const bypassCenterY = roundCoord(helperCenter.y - shortestGap);
-    needsOutputBypass.set(depth, { x: helperCenter.x, y: bypassCenterY, helperCenter, causingConsumers: consumerDepths });
-  }
-
-  const needsInputBypass = new Map();
-  for (const [outDepth, info] of needsOutputBypass.entries()) {
-    for (const consumerDepth of info.causingConsumers) {
-      const consumerCol = columns[consumerDepth] || [];
-      const inputNodes = consumerCol.filter(n => !(n.raw && n.depth === minDepth) && n.hasInputAnchor);
-      if (!inputNodes.length) continue;
-      const topInputNode = inputNodes.reduce((a,b)=> a.y < b.y ? a : b);
-      const topInputHelperCenter = anchorLeftPos(topInputNode);
-      if (!needsInputBypass.has(consumerDepth)) {
-        needsInputBypass.set(consumerDepth, { x: topInputHelperCenter.x, y: info.y, helperCenter: topInputHelperCenter });
-      }
-    }
-  }
-
-  // Expose for debugging
-  window._needsOutputBypass = needsOutputBypass;
-  window._needsInputBypass = needsInputBypass;
-  window._graphNodes = nodes;
-  window._graphLinks = links;
-
-  // Build spines
-  let spineSvg = '';
-
-  for (let i = 0; i < depthsSorted.length; i++) {
-    const depth = depthsSorted[i];
-    const colNodes = columns[depth] || [];
-    const outputAnchors = [];
-
-    for (const n of colNodes) {
-      if (n.raw && n.depth === minDepth) continue;
-      if ((n.hasOutputAnchor || n.id === BBM_ID || n.label === BBM_ID) && n.depth !== maxDepth) {
-        outputAnchors.push(anchorRightPos(n));
-      }
-    }
-
-    if (!outputAnchors.length) continue;
-
-    const ysAnch = outputAnchors.map(p => p.y);
-    const topAnchorY = Math.min(...ysAnch);
-    const bottomAnchorY = Math.max(...ysAnch);
-    const spineX = outputAnchors[0].x;
-
-    // OUTPUT GROUPING VERTICAL SPINE (WITH UP ARROW AT FLOW EXIT)
-    if (bottomAnchorY > topAnchorY) {
-
-      const SPINE_ARROW_CLEARANCE = ANCHOR_RADIUS + 6;
-
-      spineSvg += `
-        <line
-          class="graph-spine-vertical graph-spine-output-group"
-          x1="${spineX}"
-          y1="${bottomAnchorY}"
-          x2="${spineX}"
-          y2="${topAnchorY - SPINE_ARROW_CLEARANCE}"
-          stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
-          stroke-width="2"
-          marker-end="url(#spineArrowUp)"
-        />
-      `;
-    }
-
-    // Look ahead to next column
-    if (i + 1 >= depthsSorted.length) continue;
-
-    const nextDepth = depthsSorted[i + 1];
-    const nextColNodes = columns[nextDepth] || [];
-    const nextInputs = [];
-
-    for (const n of nextColNodes) {
-      if (n.raw && n.depth === minDepth) continue;
-      if (n.hasInputAnchor && n.building !== 'Smelter') {
-        nextInputs.push(anchorLeftPos(n));
-      }
-    }
-
-    if (!nextInputs.length) continue;
-
-    const topInY = Math.min(...nextInputs.map(p => p.y));
-    const bottomInY = Math.max(...nextInputs.map(p => p.y));
-    const nextSpineX = nextInputs[0].x;
-
-    const hX1 = Math.min(spineX, nextSpineX);
-    const hX2 = Math.max(spineX, nextSpineX);
-
-    spineSvg += `
-      <line
-        class="graph-spine-horizontal"
-        x1="${hX1}"
-        y1="${topAnchorY}"
-        x2="${hX2}"
-        y2="${topAnchorY}"
-        stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
-        stroke-width="2"
-        marker-end="url(#spineArrow)"
-      />
-    `;
-
-    // ↓ Vertical drop into next column (WITH arrow)
-    spineSvg += `
-      <line
-        class="graph-spine-vertical"
-        x1="${nextSpineX}"
-        y1="${topAnchorY}"
-        x2="${nextSpineX}"
-        y2="${topInY}"
-        stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
-        stroke-width="2"
-        marker-end="url(#arrow-down)"
-      />
-    `;
-
-    // Input grouping vertical spine (NO arrow)
-    spineSvg += `
-      <line
-        class="graph-spine-vertical"
-        x1="${nextSpineX}"
-        y1="${topInY}"
-        x2="${nextSpineX}"
-        y2="${bottomInY}"
-        stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
-        stroke-width="2"
-      />
-    `;
-  }
-
-  // Start building inner SVG content
-  let inner = `
-    <defs>
-      <!-- Standard edge arrows -->
-      <marker id="arrow-right"
-              viewBox="0 0 10 10"
-              refX="9"
-              refY="5"
-              markerWidth="6"
-              markerHeight="6"
-              orient="auto">
-        <path d="M0 0 L10 5 L0 10 Z" fill="var(--line-color)" />
-      </marker>
-
-      <marker id="arrow-up"
-              viewBox="0 0 10 10"
-              refX="5"
-              refY="5"
-              markerWidth="6"
-              markerHeight="6"
-              orient="auto">
-        <path d="M0 10 L5 0 L10 10 Z" fill="var(--line-color)" />
-      </marker>
-
-      <marker id="arrow-down"
-              viewBox="0 0 10 10"
-              refX="5"
-              refY="5"
-              markerWidth="6"
-              markerHeight="6"
-              orient="auto">
-        <path d="M0 0 L5 10 L10 0 Z" fill="var(--line-color)" />
-      </marker>
-
-      <!-- Spine arrow: RIGHT only -->
-      <marker id="spineArrow"
-              viewBox="0 0 8 8"
-              refX="7"
-              refY="4"
-              markerWidth="6"
-              markerHeight="6"
-              orient="auto"
-              markerUnits="strokeWidth">
-        <path d="M0 0 L8 4 L0 8 Z" fill="var(--spine-color)" />
-      </marker>
-
-      <!-- Spine arrow: UP (FIXED – NO CLIPPING) -->
-      <marker id="spineArrowUp"
-              viewBox="0 0 10 10"
-              refX="5"
-              refY="5"
-              markerWidth="6"
-              markerHeight="6"
-              orient="auto"
-              markerUnits="strokeWidth"
-              overflow="visible">
-        <path d="M0 6 L5 0 L10 6 Z" fill="var(--spine-color)" />
-      </marker>
-
-      <!-- Label backdrop -->
-      <filter id="labelBackdrop" x="-40%" y="-40%" width="180%" height="180%">
-        <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="blurred" />
-        <feDropShadow dx="0" dy="1" stdDeviation="1.5"
-                      flood-color="#000" flood-opacity="0.25" />
-        <feComposite in="blurred" in2="SourceGraphic" operator="over" />
-      </filter>
-    </defs>
-    ${spineSvg}
-  `;
-
-  // --- Direct node-to-node center lines (restricted, with reversed-link handling) ---
-  (function emitDirectNodeLines() {
-    const lineColor = isDarkMode() ? '#dcdcdc' : '#444444';
-    const rawLineColor = '#333333';
-
-      for (const link of links || []) {
-        const a = nodeById.get(link.from);
-        const b = nodeById.get(link.to);
-        if (!a || !b) continue;
-
-        let src = null, dst = null;
-        if (a.raw && a.depth === minDepth) { src = a; dst = b; }
-        else if (b.raw && b.depth === minDepth) { src = b; dst = a; }
-        else continue;
-
-        if (!(dst.depth === minDepth || dst.depth === minDepth + 1)) continue;
-
-        inner += `<line class="graph-edge direct-node-line"
-          x1="${src.x}" y1="${src.y}"
-          x2="${dst.x}" y2="${dst.y}"
-          stroke="${dst.building === 'Smelter' ? '#333333' : (isDarkMode() ? '#dcdcdc' : '#444444')}"
-          stroke-width="${dst.building === 'Smelter' ? 2.6 : 1.6}"
-          stroke-linecap="round"
-          marker-end="url(#arrow-right)" />`;
-      }
-  })();
-
-  // Node-to-helper connectors and helper dots (do not add left helper for raw nodes in far-left)
-  const helperMap = new Map();
   const defaultLineColor = isDarkMode() ? '#dcdcdc' : '#444444';
-  for (const node of nodes) {
-    const isSmelter = (node.building === 'Smelter');
-    const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
-    const rawRightOnly = !!(node.raw && node.depth !== minDepth);
 
-    if (! (node.raw && node.depth === minDepth) && (node.hasOutputAnchor || rawRightOnly || isBBM) && node.depth !== maxDepth) {
+  // Node → helper lines + helpers
+  for (const node of nodes) {
+    const isSmelter = node.building === 'Smelter';
+    const isBBM = node.id === BBM_ID || node.label === BBM_ID;
+    const minDepth = Math.min(...nodes.map(n=>n.depth));
+    const maxDepth = Math.max(...nodes.map(n=>n.depth));
+
+    if (!(node.raw && node.depth === minDepth) &&
+        (node.hasOutputAnchor || isBBM) &&
+        node.depth !== maxDepth) {
+
       const a = anchorRightPos(node);
-      helperMap.set(`${node.id}:right`, a);
-      inner += `<line class="node-to-helper" data-node="${escapeHtml(node.id)}" data-side="right" x1="${roundCoord(node.x + nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" stroke="${defaultLineColor}" stroke-width="1.2" />`;
-      inner += `<g class="helper-dot helper-output" data-node="${escapeHtml(node.id)}" data-side="right" transform="translate(${a.x},${a.y})" aria-hidden="true"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
-      inner += `<g class="anchor anchor-right" data-node="${escapeHtml(node.id)}" data-side="right" transform="translate(${a.x},${a.y})" tabindex="0" role="button" aria-label="Output anchor for ${escapeHtml(node.label)}"><circle class="anchor-hit" cx="0" cy="0" r="${ANCHOR_HIT_RADIUS}" fill="transparent" pointer-events="all" /><circle class="anchor-dot" cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--anchor-dot-fill)" stroke="var(--anchor-dot-stroke)" stroke-width="1.2" /></g>`;
+      inner += `
+        <line class="node-to-helper"
+          x1="${roundCoord(node.x + nodeRadius)}"
+          y1="${node.y}"
+          x2="${a.x}"
+          y2="${a.y}"
+          stroke="${defaultLineColor}"
+          stroke-width="1.2" />
+        <g class="helper-dot helper-output"
+          transform="translate(${a.x},${a.y})">
+          <circle r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2"/>
+        </g>
+        <g class="anchor anchor-right"
+          transform="translate(${a.x},${a.y})">
+          <circle class="anchor-hit" r="${ANCHOR_HIT_RADIUS}" fill="transparent"/>
+          <circle class="anchor-dot" r="${ANCHOR_RADIUS}" fill="var(--anchor-dot-fill)" stroke="var(--anchor-dot-stroke)" stroke-width="1.2"/>
+        </g>
+      `;
     }
 
     if (node.hasInputAnchor && !isSmelter && !isBBM && !node.raw) {
       const a = anchorLeftPos(node);
-      helperMap.set(`${node.id}:left`, a);
-      inner += `<line class="node-to-helper" data-node="${escapeHtml(node.id)}" data-side="left" x1="${roundCoord(node.x - nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" stroke="${defaultLineColor}" stroke-width="1.2" />`;
-      inner += `<g class="helper-dot helper-input" data-node="${escapeHtml(node.id)}" data-side="left" transform="translate(${a.x},${a.y})" aria-hidden="true"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
-      inner += `<g class="anchor anchor-left" data-node="${escapeHtml(node.id)}" data-side="left" transform="translate(${a.x},${a.y})" tabindex="0" role="button" aria-label="Input anchor for ${escapeHtml(node.label)}"><circle class="anchor-hit" cx="0" cy="0" r="${ANCHOR_HIT_RADIUS}" fill="transparent" pointer-events="all" /><circle class="anchor-dot" cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--anchor-dot-fill)" stroke="var(--anchor-dot-stroke)" stroke-width="1.2" /></g>`;
+      inner += `
+        <line class="node-to-helper"
+          x1="${roundCoord(node.x - nodeRadius)}"
+          y1="${node.y}"
+          x2="${a.x}"
+          y2="${a.y}"
+          stroke="${defaultLineColor}"
+          stroke-width="1.2" />
+        <g class="helper-dot helper-input"
+          transform="translate(${a.x},${a.y})">
+          <circle r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2"/>
+        </g>
+        <g class="anchor anchor-left"
+          transform="translate(${a.x},${a.y})">
+          <circle class="anchor-hit" r="${ANCHOR_HIT_RADIUS}" fill="transparent"/>
+          <circle class="anchor-dot" r="${ANCHOR_RADIUS}" fill="var(--anchor-dot-fill)" stroke="var(--anchor-dot-stroke)" stroke-width="1.2"/>
+        </g>
+      `;
     }
   }
 
-  // Bypass connectors to/from spines
-  for (const [depth, info] of needsOutputBypass.entries()) {
-    inner += `<line class="bypass-to-spine bypass-output-connector" data-depth="${depth}" x1="${info.x}" y1="${info.y}" x2="${info.x}" y2="${info.helperCenter.y}" stroke="${defaultLineColor}" stroke-width="1.4" />`;
-  }
-  for (const [consumerDepth, pos] of needsInputBypass.entries()) {
-    inner += `<line class="bypass-to-spine bypass-input-connector" data-depth="${consumerDepth}" x1="${pos.x}" y1="${pos.helperCenter.y}" x2="${pos.x}" y2="${pos.y}" stroke="${defaultLineColor}" stroke-width="1.4" />`;
-  }
-  for (const [outDepth, outInfo] of needsOutputBypass.entries()) {
-    for (const consumerDepth of outInfo.causingConsumers) {
-      const inPos = needsInputBypass.get(consumerDepth);
-      if (!inPos) continue;
-      inner += `<line class="bypass-connector" data-from-depth="${outDepth}" data-to-depth="${consumerDepth}" x1="${outInfo.x}" y1="${outInfo.y}" x2="${inPos.x}" y2="${inPos.y}" stroke="${defaultLineColor}" stroke-width="1.4" />`;
-    }
-  }
-
-  // Node visuals (labels, circles, numbers)
+  // Nodes
   for (const node of nodes) {
     const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
-    const strokeColor = "#2c3e50";
-    const labelText = String(node.label || node.id).trim();
-    const labelFontSize = 13;
-    const labelPaddingX = 10;
-    const labelPaddingY = 8;
+    const label = String(node.label || node.id);
+    const fontSize = 13;
+    const padX = 10, padY = 8;
+    const width = Math.max(48, label.length * 7 + padX*2);
+    const height = fontSize + padY*2;
 
-    const approxCharWidth = 7;
-    const labelBoxWidth = Math.max(48, Math.ceil(labelText.length * approxCharWidth) + labelPaddingX * 2);
-    const labelBoxHeight = labelFontSize + labelPaddingY * 2;
-    const labelBoxX = roundCoord(node.x - labelBoxWidth / 2);
-    const labelBoxY = roundCoord((node.y - GRAPH_LABEL_OFFSET) - labelBoxHeight / 2);
-    const labelCenterY = roundCoord(labelBoxY + labelBoxHeight / 2);
-
-    inner += `<g class="graph-node" data-id="${escapeHtml(node.id)}" tabindex="0" role="button" aria-label="${escapeHtml(node.label)}" style="outline:none;">`;
-    inner += `<rect class="label-box" x="${labelBoxX}" y="${labelBoxY}" width="${labelBoxWidth}" height="${labelBoxHeight}" rx="6" ry="6" fill="var(--label-box-fill)" stroke="var(--label-box-stroke)" stroke-width="0.8" filter="url(#labelBackdrop)" pointer-events="none" />`;
-    inner += `<text class="nodeLabel" x="${node.x}" y="${labelCenterY}" text-anchor="middle" dominant-baseline="middle" font-size="${labelFontSize}" font-weight="700" fill="var(--label-text-fill)" stroke="var(--label-text-stroke)" stroke-width="var(--label-text-stroke-width)" paint-order="stroke" pointer-events="none">${escapeHtml(labelText)}</text>`;
-    inner += `<circle class="graph-node-circle" data-id="${escapeHtml(node.id)}" cx="${node.x}" cy="${node.y}" r="${nodeRadius}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" />`;
-    inner += node.raw ? '' : `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20" fill="${fillColor}" rx="4" ry="4" pointer-events="none" />`;
-    inner += `<text class="nodeNumber" x="${node.x}" y="${node.y}" text-anchor="middle" font-size="13" font-weight="700" fill="var(--label-text-fill)" stroke="var(--label-text-stroke)" stroke-width="0.6" paint-order="stroke" pointer-events="none">${node.raw ? '' : Math.ceil(node.machines)}</text>`;
-    inner += `</g>`;
+    inner += `
+      <g class="graph-node">
+        <rect x="${node.x - width/2}" y="${node.y - GRAPH_LABEL_OFFSET - height/2}"
+              width="${width}" height="${height}" rx="6"
+              fill="var(--label-box-fill)" stroke="var(--label-box-stroke)"/>
+        <text x="${node.x}" y="${node.y - GRAPH_LABEL_OFFSET}"
+              text-anchor="middle" dominant-baseline="middle"
+              font-size="${fontSize}" font-weight="700"
+              fill="var(--label-text-fill)">${label}</text>
+        <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
+                fill="${fillColor}" stroke="#2c3e50" stroke-width="2"/>
+        ${node.raw ? '' : `<text x="${node.x}" y="${node.y}"
+          text-anchor="middle" dominant-baseline="middle"
+          font-size="13" font-weight="700"
+          fill="var(--label-text-fill)">${Math.ceil(node.machines)}</text>`}
+      </g>
+    `;
   }
 
-  // Bypass helper dots (visual)
-  for (const [depth, info] of needsOutputBypass.entries()) {
-    inner += `<g class="bypass-dot bypass-output" data-depth="${depth}" transform="translate(${info.x},${info.y})" aria-hidden="true"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
-  }
-  for (const [consumerDepth, pos] of needsInputBypass.entries()) {
-    inner += `<g class="bypass-dot bypass-input" data-depth="${consumerDepth}" transform="translate(${pos.x},${pos.y})" aria-hidden="true"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
-  }
+  const dark = !!isDarkMode();
+  const styleVars = `
+    --line-color:${dark?'#dcdcdc':'#444'};
+    --bypass-fill:${dark?'#fff':'#2c3e50'};
+    --bypass-stroke:${dark?'#000':'#fff'};
+    --anchor-dot-fill:${dark?'#fff':'#2c3e50'};
+    --anchor-dot-stroke:${dark?'#000':'#fff'};
+    --label-box-fill:${dark?'rgba(0,0,0,0.88)':'rgba(255,255,255,0.92)'};
+    --label-box-stroke:${dark?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.06)'};
+    --label-text-fill:${dark?'#fff':'#111'};
+  `;
 
-  const dark = !!(typeof isDarkMode === 'function' ? isDarkMode() : false);
-  const initialVars = {
-    '--line-color': dark ? '#dcdcdc' : '#444444',
-    '--spine-color': dark ? '#bdbdbd' : '#666666',
-    '--raw-edge-color': '#333333',
-    '--label-box-fill': dark ? 'rgba(0,0,0,0.88)' : 'rgba(255,255,255,0.92)',
-    '--label-box-stroke': dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-    '--label-text-fill': dark ? '#ffffff' : '#111111',
-    '--label-text-stroke': dark ? '#000000' : '#ffffff',
-    '--label-text-stroke-width': dark ? '1.0' : '0.6',
-    '--anchor-dot-fill': dark ? '#ffffff' : '#2c3e50',
-    '--anchor-dot-stroke': dark ? '#000000' : '#ffffff',
-    '--bypass-fill': dark ? '#ffffff' : '#2c3e50',
-    '--bypass-stroke': dark ? '#000000' : '#ffffff'
-  };
-  const wrapperStyle = Object.entries(initialVars).map(([k,v]) => `${k}:${v}`).join(';');
-
-  const viewBoxX = Math.floor(contentX);
-  const viewBoxY = Math.floor(contentY);
-  const viewBoxW = Math.ceil(contentW);
-  const viewBoxH = Math.ceil(contentH);
-
-  const html = `<div class="graphWrapper" data-vb="${viewBoxX},${viewBoxY},${viewBoxW},${viewBoxH}" style="${wrapperStyle}"><div class="graphViewport"><svg xmlns="http://www.w3.org/2000/svg" class="graphSVG" viewBox="${viewBoxX} ${viewBoxY} ${viewBoxW} ${viewBoxH}" preserveAspectRatio="xMidYMid meet"><g id="zoomLayer">${inner}</g></svg></div></div>`;
-
-  // Theme observer (keeps colors in sync)
-  (function installThemeObserverOnce(){
-    if (window._graphThemeObserverInstalled) return;
-    window._graphThemeObserverInstalled = true;
-    function computeVarsFromTheme() {
-      const darkNow = !!(typeof isDarkMode === 'function' ? isDarkMode() : false);
-      return {
-        '--line-color': darkNow ? '#dcdcdc' : '#444444',
-        '--spine-color': darkNow ? '#bdbdbd' : '#666666',
-        '--raw-edge-color': '#333333',
-        '--label-box-fill': darkNow ? 'rgba(0,0,0,0.88)' : 'rgba(255,255,255,0.92)',
-        '--label-box-stroke': darkNow ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-        '--label-text-fill': darkNow ? '#ffffff' : '#111111',
-        '--label-text-stroke': darkNow ? '#000000' : '#ffffff',
-        '--label-text-stroke-width': darkNow ? '1.0' : '0.6',
-        '--anchor-dot-fill': darkNow ? '#ffffff' : '#2c3e50',
-        '--anchor-dot-stroke': darkNow ? '#000000' : '#ffffff',
-        '--bypass-fill': darkNow ? '#ffffff' : '#2c3e50',
-        '--bypass-stroke': darkNow ? '#000000' : '#ffffff'
-      };
-    }
-    function updateAllGraphWrappers() {
-      const vars = computeVarsFromTheme();
-      const wrappers = document.querySelectorAll('.graphWrapper');
-      wrappers.forEach(w => {
-        for (const [k, v] of Object.entries(vars)) w.style.setProperty(k, v);
-      });
-    }
-    const target = document.documentElement || document.body;
-    try {
-      const mo = new MutationObserver(mutations => {
-        for (const m of mutations) {
-          if (m.type === 'attributes' && (m.attributeName === 'class' || m.attributeName === 'data-theme' || m.attributeName === 'theme')) {
-            updateAllGraphWrappers();
-            return;
-          }
-        }
-      });
-      mo.observe(target, { attributes: true, attributeFilter: ['class','data-theme','theme'] });
-      if (window.matchMedia) {
-        const mq = window.matchMedia('(prefers-color-scheme: dark)');
-        if (typeof mq.addEventListener === 'function') mq.addEventListener('change', updateAllGraphWrappers);
-        else if (typeof mq.addListener === 'function') mq.addListener(updateAllGraphWrappers);
-      }
-      window._updateGraphThemeVars = updateAllGraphWrappers;
-    } catch (e) {
-      window._updateGraphThemeVars = updateAllGraphWrappers;
-    }
-  })();
-
-  return html;
+  return `
+    <div class="graphWrapper" style="${styleVars}">
+      <div class="graphViewport">
+        <svg class="graphSVG"
+          viewBox="${contentX} ${contentY} ${contentW} ${contentH}">
+          ${inner}
+        </svg>
+      </div>
+    </div>
+  `;
 }
 
 // Minimal guarded attachNodePointerHandlers that does not trigger pulses
