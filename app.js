@@ -773,9 +773,22 @@ function renderGraph(nodes, links, rootItem) {
   const ANCHOR_HIT_RADIUS = 12;
   const ANCHOR_OFFSET = 18;
 
+  const OUTPUT_ARROW_SIZE = 6;
+  const OUTPUT_ARROW_OFFSET_Y = -10;
+
   function roundCoord(v) { return Math.round(v * 100) / 100; }
-  function anchorRightPos(node) { return { x: roundCoord(node.x + nodeRadius + ANCHOR_OFFSET), y: roundCoord(node.y) }; }
-  function anchorLeftPos(node)  { return { x: roundCoord(node.x - nodeRadius - ANCHOR_OFFSET), y: roundCoord(node.y) }; }
+  function anchorRightPos(node) {
+    return {
+      x: roundCoord(node.x + nodeRadius + ANCHOR_OFFSET),
+      y: roundCoord(node.y)
+    };
+  }
+  function anchorLeftPos(node) {
+    return {
+      x: roundCoord(node.x - nodeRadius - ANCHOR_OFFSET),
+      y: roundCoord(node.y)
+    };
+  }
 
   // Defaults
   for (const n of nodes) {
@@ -808,7 +821,7 @@ function renderGraph(nodes, links, rootItem) {
     });
   }
 
-  // ViewBox
+  // ViewBox calc
   const xs = nodes.map(n=>n.x), ys = nodes.map(n=>n.y);
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minY = Math.min(...ys), maxY = Math.max(...ys);
@@ -818,23 +831,14 @@ function renderGraph(nodes, links, rootItem) {
   const contentW = (maxX - minX) + nodeRadius*2 + GRAPH_CONTENT_PAD*2;
   const contentH = (maxY - minY) + nodeRadius*2 + GRAPH_CONTENT_PAD*2;
 
+  let inner = '';
   const defaultLineColor = isDarkMode() ? '#dcdcdc' : '#444444';
 
-  let inner = `
-    <defs>
-      <marker id="arrow-up-mid"
-        viewBox="0 0 10 10"
-        refX="5"
-        refY="5"
-        markerWidth="6"
-        markerHeight="6"
-        orient="270">
-        <path d="M0 10 L5 0 L10 10 Z" fill="${defaultLineColor}" />
-      </marker>
-    </defs>
-  `;
+  // -------------------------------
+  // Collect RIGHT helper anchors
+  // -------------------------------
+  const rightHelpers = [];
 
-  // Node → helper
   for (const node of nodes) {
     const isSmelter = node.building === 'Smelter';
     const isBBM = node.id === BBM_ID || node.label === BBM_ID;
@@ -846,13 +850,21 @@ function renderGraph(nodes, links, rootItem) {
         node.depth !== maxDepth) {
 
       const a = anchorRightPos(node);
+      rightHelpers.push(a);
+
       inner += `
-        <line x1="${roundCoord(node.x + nodeRadius)}" y1="${node.y}"
-              x2="${a.x}" y2="${a.y}"
-              stroke="${defaultLineColor}" stroke-width="1.2"/>
+        <line
+          x1="${roundCoord(node.x + nodeRadius)}"
+          y1="${node.y}"
+          x2="${a.x}"
+          y2="${a.y}"
+          stroke="${defaultLineColor}"
+          stroke-width="1.2" />
         <g transform="translate(${a.x},${a.y})">
-          <circle r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)"
-                  stroke="var(--bypass-stroke)" stroke-width="1.2"/>
+          <circle r="${ANCHOR_RADIUS}"
+            fill="var(--bypass-fill)"
+            stroke="var(--bypass-stroke)"
+            stroke-width="1.2"/>
         </g>
       `;
     }
@@ -860,97 +872,89 @@ function renderGraph(nodes, links, rootItem) {
     if (node.hasInputAnchor && !isSmelter && !isBBM && !node.raw) {
       const a = anchorLeftPos(node);
       inner += `
-        <line x1="${roundCoord(node.x - nodeRadius)}" y1="${node.y}"
-              x2="${a.x}" y2="${a.y}"
-              stroke="${defaultLineColor}" stroke-width="1.2"/>
+        <line
+          x1="${roundCoord(node.x - nodeRadius)}"
+          y1="${node.y}"
+          x2="${a.x}"
+          y2="${a.y}"
+          stroke="${defaultLineColor}"
+          stroke-width="1.2" />
         <g transform="translate(${a.x},${a.y})">
-          <circle r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)"
-                  stroke="var(--bypass-stroke)" stroke-width="1.2"/>
+          <circle r="${ANCHOR_RADIUS}"
+            fill="var(--bypass-fill)"
+            stroke="var(--bypass-stroke)"
+            stroke-width="1.2"/>
         </g>
       `;
     }
   }
 
-  // Helper → Helper (vertical ONLY: Wolfram Bar → Titanium Bar)
-  {
-    const wolfram = nodes.find(n => n.id === 'Wolfram Bar');
-    const titanium = nodes.find(n => n.id === 'Titanium Bar');
-
-    if (wolfram && titanium) {
-      const a = anchorRightPos(wolfram);
-      const b = anchorRightPos(titanium);
-
-      const x = a.x;
-      const y1 = Math.min(a.y, b.y);
-      const y2 = Math.max(a.y, b.y);
-
-      // vertical line
-      inner += `
-        <line
-          x1="${x}" y1="${y1}"
-          x2="${x}" y2="${y2}"
-          stroke="${defaultLineColor}"
-          stroke-width="1.6" />
-      `;
-
-      // centered UP arrow (manual, guaranteed)
-      const midY = (y1 + y2) / 2 - 10; // offset upward to avoid labels
-      const size = 6;
-
-      inner += `
-        <path
-          d="
-            M ${x - size} ${midY + size}
-            L ${x}        ${midY}
-            L ${x + size} ${midY + size}
-            Z"
-          fill="${defaultLineColor}" />
-      `;
-    }
+  // -------------------------------
+  // OUTPUT SPINES (vertical + arrow)
+  // -------------------------------
+  const byX = {};
+  for (const h of rightHelpers) {
+    const key = h.x;
+    if (!byX[key]) byX[key] = [];
+    byX[key].push(h);
   }
 
+  for (const [x, helpers] of Object.entries(byX)) {
+    if (helpers.length < 2) continue;
+
+    const ys = helpers.map(h => h.y);
+    const y1 = Math.min(...ys);
+    const y2 = Math.max(...ys);
+
+    const midY = (y1 + y2) / 2 + OUTPUT_ARROW_OFFSET_Y;
+
+    inner += `
+      <line
+        x1="${x}" y1="${y1}"
+        x2="${x}" y2="${y2}"
+        stroke="${defaultLineColor}"
+        stroke-width="1.6"/>
+
+      <polygon
+        points="
+          ${x},${midY - OUTPUT_ARROW_SIZE}
+          ${x - OUTPUT_ARROW_SIZE},${midY + OUTPUT_ARROW_SIZE}
+          ${x + OUTPUT_ARROW_SIZE},${midY + OUTPUT_ARROW_SIZE}
+        "
+        fill="${defaultLineColor}" />
+    `;
+  }
+
+  // -------------------------------
   // Nodes
+  // -------------------------------
   for (const node of nodes) {
     const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
     const label = String(node.label || node.id);
-    const fontSize = 13;
-    const padX = 10, padY = 8;
-    const width = Math.max(48, label.length * 7 + padX*2);
-    const height = fontSize + padY*2;
 
     inner += `
-      <g class="graph-node">
-        <rect x="${node.x - width/2}" y="${node.y - GRAPH_LABEL_OFFSET - height/2}"
-              width="${width}" height="${height}" rx="6"
-              fill="var(--label-box-fill)" stroke="var(--label-box-stroke)"/>
-        <text x="${node.x}" y="${node.y - GRAPH_LABEL_OFFSET}"
-              text-anchor="middle" dominant-baseline="middle"
-              font-size="${fontSize}" font-weight="700"
-              fill="var(--label-text-fill)">${label}</text>
-        <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
-                fill="${fillColor}" stroke="#2c3e50" stroke-width="2"/>
-        ${node.raw ? '' : `<text x="${node.x}" y="${node.y}"
-          text-anchor="middle" dominant-baseline="middle"
-          font-size="13" font-weight="700"
-          fill="var(--label-text-fill)">${Math.ceil(node.machines)}</text>`}
+      <g>
+        <text x="${node.x}" y="${node.y - 36}"
+          text-anchor="middle"
+          font-size="13"
+          font-weight="700"
+          fill="var(--label-text-fill)">
+          ${label}
+        </text>
+        <circle cx="${node.x}" cy="${node.y}"
+          r="${nodeRadius}"
+          fill="${fillColor}"
+          stroke="#2c3e50"
+          stroke-width="2"/>
       </g>
     `;
   }
 
-  const dark = !!isDarkMode();
-  const styleVars = `
-    --bypass-fill:${dark?'#fff':'#2c3e50'};
-    --bypass-stroke:${dark?'#000':'#fff'};
-  `;
-
   return `
-    <div class="graphWrapper" style="${styleVars}">
-      <div class="graphViewport">
-        <svg class="graphSVG"
-          viewBox="${contentX} ${contentY} ${contentW} ${contentH}">
-          ${inner}
-        </svg>
-      </div>
+    <div class="graphWrapper">
+      <svg viewBox="${contentX} ${contentY} ${contentW} ${contentH}">
+        ${inner}
+      </svg>
     </div>
   `;
 }
