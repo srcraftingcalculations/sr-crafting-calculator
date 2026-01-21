@@ -825,7 +825,7 @@ function renderGraph(nodes, links, rootItem) {
     const rawRightOnly = !!(node.raw && node.depth !== minDepth);
 
     // DO NOT render left helper/anchor for raw nodes that sit in the far-left column
-    if (node.hasInputAnchor && !isSmelter && !isBBM && !(node.raw && node.depth === minDepth)) {
+    if (node.hasInputAnchor && !isSmelter && !isBBM && !node.raw) {
       willRenderAnchors.push({ side:'left', node, pos: anchorLeftPos(node) });
     }
     if ((node.hasOutputAnchor || rawRightOnly || isBBM) && node.depth !== maxDepth) {
@@ -989,7 +989,7 @@ function renderGraph(nodes, links, rootItem) {
       inner += `<g class="anchor anchor-right" data-node="${escapeHtml(node.id)}" data-side="right" transform="translate(${a.x},${a.y})" tabindex="0" role="button" aria-label="Output anchor for ${escapeHtml(node.label)}"><circle class="anchor-hit" cx="0" cy="0" r="${ANCHOR_HIT_RADIUS}" fill="transparent" pointer-events="all" /><circle class="anchor-dot" cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--anchor-dot-fill)" stroke="var(--anchor-dot-stroke)" stroke-width="1.2" /></g>`;
     }
 
-    if (node.hasInputAnchor && !isSmelter && !isBBM && !(node.raw && node.depth === minDepth)) {
+    if (node.hasInputAnchor && !isSmelter && !isBBM && !node.raw) {
       const a = anchorLeftPos(node);
       helperMap.set(`${node.id}:left`, a);
       inner += `<line class="node-to-helper" data-node="${escapeHtml(node.id)}" data-side="left" x1="${roundCoord(node.x - nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" stroke="${defaultLineColor}" stroke-width="1.2" />`;
