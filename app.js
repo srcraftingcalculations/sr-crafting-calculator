@@ -776,7 +776,7 @@ function renderGraph(nodes, links, rootItem) {
   const ARROW_HEIGHT = 8;
   const ARROW_CENTER_ADJUST = ARROW_HEIGHT / 3;
   const ARROW_GAP_FROM_LABEL = 6;
-  const UP_ARROW_EXTRA_LIFT = 3;
+  const UP_ARROW_EXTRA_LIFT = 5;
 
 
   const LABEL_OFFSET = 6;
