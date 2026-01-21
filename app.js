@@ -928,7 +928,7 @@ function renderGraph(nodes, links, rootItem) {
       `;
 
       // arrow — short vertical segment, centered & lifted
-      const midY = (y1 + y2) / 2 - ARROW_OFFSET_Y;
+      const midY = (y1 + y2) / 2;
 
       inner += `
         <polygon
@@ -972,7 +972,7 @@ function renderGraph(nodes, links, rootItem) {
       `;
 
       // arrow — SAME OFFSET MAGNITUDE as output, inverted direction
-      const midY = (y1 + y2) / 2 + ARROW_OFFSET_Y;
+      const midY = (y1 + y2) / 2;
 
       inner += `
         <polygon
