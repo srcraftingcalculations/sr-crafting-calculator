@@ -334,13 +334,10 @@ function buildGraphData(chain, rootItem) {
 })();
 
 /* ===============================
-   renderGraph (final corrections)
-   - Vertical connectors attach exactly to helper-dot coordinates (no diagonals)
-   - Bypass dots placed using the global shortestGap above top helper dot
-   - Vertical connectors use bypass X (so they are truly vertical) and end at the exact helper-dot coords
-   - Horizontal bypass connectors connect bypass centers
-   - Connectors are drawn before anchor/bypass dots so dots sit on top and visually meet lines
-   - Preserves BBM alignment, smelter left-anchor suppression, final-column suppression, alphabetical layout
+   renderGraph (connectors meet helper-dot edges)
+   - Vertical connectors end/start at helper-dot edge (topHelper.y + ANCHOR_RADIUS)
+   - Horizontal bypass connectors unchanged
+   - Preserves previous behavior and spacing logic
    =============================== */
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
@@ -352,7 +349,6 @@ function renderGraph(nodes, links, rootItem) {
   const BBM_ID = 'Basic Building Material';
   const TARGET_SMELTER_OUTPUTS = ['Calcium Block', 'Titanium Bar', 'Wolfram Bar'];
 
-  // Ensure anchor flags exist
   for (const n of nodes) {
     if (typeof n.hasInputAnchor === 'undefined') n.hasInputAnchor = true;
     if (typeof n.hasOutputAnchor === 'undefined') n.hasOutputAnchor = true;
@@ -384,7 +380,7 @@ function renderGraph(nodes, links, rootItem) {
     columns[node.depth].push(node);
   }
 
-  // Layout nodes: alphabetical top -> bottom in each column
+  // Layout nodes alphabetically in each column
   for (const [depth, colNodes] of Object.entries(columns)) {
     colNodes.sort((a, b) => (String(a.label || a.id)).localeCompare(String(b.label || b.id), undefined, { sensitivity: 'base' }));
     colNodes.forEach((node, i) => {
@@ -393,7 +389,7 @@ function renderGraph(nodes, links, rootItem) {
     });
   }
 
-  // Compute bounds
+  // Bounds
   const xs = nodes.map(n => n.x);
   const ys = nodes.map(n => n.y);
   const minX = nodes.length ? Math.min(...xs) : 0;
@@ -415,7 +411,7 @@ function renderGraph(nodes, links, rootItem) {
   const minDepth = nodes.length ? Math.min(...nodes.map(n => n.depth)) : 0;
   const maxDepth = nodes.length ? Math.max(...nodes.map(n => n.depth)) : 0;
 
-  // Determine which anchors will render (so we can compute global helper-dot Ys)
+  // Which anchors will render
   const willRenderAnchors = [];
   for (const node of nodes) {
     const hideAllAnchors = (node.raw && node.depth === minDepth);
@@ -436,7 +432,7 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
-  // Compute the shortest positive vertical distance between any two helper dots
+  // Shortest positive vertical gap between helper dots
   const uniqueYs = Array.from(new Set(willRenderAnchors.map(a => Math.round(a.y * 100) / 100))).sort((a, b) => a - b);
   let shortestGap;
   if (uniqueYs.length >= 2) {
@@ -450,7 +446,7 @@ function renderGraph(nodes, links, rootItem) {
     shortestGap = nodeRadius + ANCHOR_OFFSET;
   }
 
-  // Compute output bypass dots (capture exact top helper anchor coords)
+  // Compute output bypass dots (capture top helper coords)
   const depthsSorted = Object.keys(columns).map(d => Number(d)).sort((a, b) => a - b);
   const needsOutputBypass = new Map(); // depth -> { x, y, topHelper:{x,y}, causingConsumers:Set }
 
@@ -476,7 +472,7 @@ function renderGraph(nodes, links, rootItem) {
 
     const topOutputNode = outputs.reduce((a, b) => (a.y < b.y ? a : b));
     const topHelper = anchorTopPos(topOutputNode); // exact coordinate of top helper dot
-    const anchorX = anchorRightPos(topOutputNode).x; // bypass X (aligned with output anchors)
+    const anchorX = anchorRightPos(topOutputNode).x; // bypass X aligned with output anchors
     const bypassY = topHelper.y - shortestGap; // place bypass exactly shortestGap above top helper
 
     needsOutputBypass.set(depth, { x: anchorX, y: bypassY, topHelper, causingConsumers: consumerDepths });
@@ -493,7 +489,7 @@ function renderGraph(nodes, links, rootItem) {
       const topInputNode = inputNodes.reduce((a, b) => (a.y < b.y ? a : b));
       const topInputHelper = anchorTopPos(topInputNode); // exact coordinate of top helper dot for inputs
       const inputAnchorX = anchorLeftPos(topInputNode).x; // input anchor X
-      const inputBypassY = info.y; // same Y as the output bypass dot (user requested same height)
+      const inputBypassY = info.y; // same Y as the output bypass dot
 
       if (!needsInputBypass.has(consumerDepth)) {
         needsInputBypass.set(consumerDepth, { x: inputAnchorX, y: inputBypassY, topInputHelper });
@@ -565,24 +561,23 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
-  // --- Draw vertical connectors from bypass dots to exact helper-dot coords (use bypass X so lines are vertical) ---
-  // Output bypass -> top helper anchor (vertical)
+  // --- Draw vertical connectors from bypass dots to helper-dot EDGE (use helper.y + ANCHOR_RADIUS) ---
   for (const [depth, info] of needsOutputBypass.entries()) {
-    // Use info.x for both x1 and x2 so connector is vertical and meets the helper dot at topHelper.x/topHelper.y
+    // vertical line from bypass center down to the bottom edge of the top helper dot
     inner += `
       <line class="bypass-to-spine bypass-output-connector" data-depth="${depth}"
-            x1="${info.x}" y1="${info.y}" x2="${info.x}" y2="${info.topHelper.y}"
-            stroke="${isDark ? '#ddd' : '#444'}" stroke-width="1.4" stroke-linecap="round" opacity="0.95" />
+            x1="${info.x}" y1="${info.y}" x2="${info.x}" y2="${info.topHelper.y + ANCHOR_RADIUS}"
+            stroke="${isDark ? '#ddd' : '#444'}" stroke-width="1.4" stroke-linecap="butt" opacity="0.95" />
     `;
   }
 
-  // Input bypass -> top input helper anchor (vertical)
   for (const [consumerDepth, pos] of needsInputBypass.entries()) {
     if (pos.topInputHelper) {
+      // vertical line from the bottom edge of the top input helper dot down to the input bypass center
       inner += `
         <line class="bypass-to-spine bypass-input-connector" data-depth="${consumerDepth}"
-              x1="${pos.x}" y1="${pos.topInputHelper.y}" x2="${pos.x}" y2="${pos.y}"
-              stroke="${isDark ? '#ddd' : '#444'}" stroke-width="1.4" stroke-linecap="round" opacity="0.95" />
+              x1="${pos.x}" y1="${pos.topInputHelper.y + ANCHOR_RADIUS}" x2="${pos.x}" y2="${pos.y}"
+              stroke="${isDark ? '#ddd' : '#444'}" stroke-width="1.4" stroke-linecap="butt" opacity="0.95" />
       `;
     }
   }
@@ -600,7 +595,7 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
-  // --- Nodes, connectors, and anchor dots (draw anchors after connectors so dots sit on top) ---
+  // Nodes, connectors, and anchor dots (draw anchors after connectors so dots sit on top)
   for (const node of nodes) {
     const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
     const strokeColor = "#2c3e50";
@@ -615,7 +610,6 @@ function renderGraph(nodes, links, rootItem) {
     const showRightAnchor = !hideAllAnchors && (node.hasOutputAnchor || isBBM) && (node.depth !== maxDepth);
     const showTopAnchor = !hideAllAnchors && node.hasTopAnchor;
 
-    // Connectors from node edge to anchor dot (visual)
     if (showLeftAnchor) {
       const startX = node.x - nodeRadius;
       const startY = node.y;
@@ -644,7 +638,6 @@ function renderGraph(nodes, links, rootItem) {
       `;
     }
 
-    // Node markup
     inner += `
       <g class="graph-node" data-id="${escapeHtml(node.id)}" tabindex="0" role="button" aria-label="${escapeHtml(node.label)}" style="outline:none;">
         <text class="nodeLabel" x="${node.x}" y="${labelY}"
@@ -665,7 +658,6 @@ function renderGraph(nodes, links, rootItem) {
         </text>
     `;
 
-    // Anchor dots (render after connectors so they visually sit on top and connectors meet them)
     if (showLeftAnchor) {
       const a = anchorLeftPos(node);
       inner += `
