@@ -799,7 +799,9 @@ function renderGraph(nodes, links, rootItem) {
     };
   }
 
+  // ---------------------------------
   // Defaults
+  // ---------------------------------
   for (const n of nodes) {
     if (typeof n.hasInputAnchor === 'undefined') n.hasInputAnchor = true;
     if (typeof n.hasOutputAnchor === 'undefined') n.hasOutputAnchor = true;
@@ -807,7 +809,9 @@ function renderGraph(nodes, links, rootItem) {
     if (typeof n.machines === 'undefined') n.machines = 0;
   }
 
+  // ---------------------------------
   // Normalize depths
+  // ---------------------------------
   const uniqueDepths = [...new Set(nodes.map(n => Number(n.depth) || 0))].sort((a,b)=>a-b);
   const depthMap = new Map(uniqueDepths.map((d,i)=>[d,i]));
   nodes.forEach(n => n.depth = depthMap.get(Number(n.depth)) ?? 0);
@@ -830,7 +834,9 @@ function renderGraph(nodes, links, rootItem) {
     });
   }
 
+  // ---------------------------------
   // ViewBox
+  // ---------------------------------
   const xs = nodes.map(n=>n.x), ys = nodes.map(n=>n.y);
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minY = Math.min(...ys), maxY = Math.max(...ys);
@@ -845,40 +851,18 @@ function renderGraph(nodes, links, rootItem) {
   let inner = '';
 
   // ---------------------------------
-  // SVG DEFS (arrow marker)
-  // ---------------------------------
-  inner += `
-    <defs>
-      <marker id="arrowUp"
-        markerWidth="8"
-        markerHeight="8"
-        refX="4"
-        refY="4"
-        orient="0"
-        markerUnits="userSpaceOnUse">
-        <path d="M0,8 L4,0 L8,8 Z" fill="${defaultLineColor}" />
-      </marker>
-    </defs>
-  `;
-
-  // ---------------------------------
-  // Node → Helper lines + helpers
+  // Helper anchors
   // ---------------------------------
   const rightHelpers = [];
   const leftHelpers = [];
 
   for (const node of nodes) {
-    const isSmelter = node.building === 'Smelter';
-    const isBBM = node.id === BBM_ID || node.label === BBM_ID;
     const minDepth = Math.min(...nodes.map(n=>n.depth));
     const maxDepth = Math.max(...nodes.map(n=>n.depth));
 
-    if (!(node.raw && node.depth === minDepth) &&
-        (node.hasOutputAnchor || isBBM) &&
-        node.depth !== maxDepth) {
-
+    if (node.hasOutputAnchor && node.depth !== maxDepth) {
       const a = anchorRightPos(node);
-      rightHelpers.push(a);
+      rightHelpers.push({ ...a, depth: node.depth });
 
       inner += `
         <line x1="${node.x + nodeRadius}" y1="${node.y}"
@@ -892,9 +876,10 @@ function renderGraph(nodes, links, rootItem) {
       `;
     }
 
-    if (node.hasInputAnchor && !isSmelter && !isBBM && !node.raw) {
+    if (node.hasInputAnchor && node.depth !== minDepth) {
       const a = anchorLeftPos(node);
-      leftHelpers.push(a);
+      leftHelpers.push({ ...a, depth: node.depth });
+
       inner += `
         <line x1="${node.x - nodeRadius}" y1="${node.y}"
               x2="${a.x}" y2="${a.y}"
@@ -909,7 +894,7 @@ function renderGraph(nodes, links, rootItem) {
   }
 
   // ---------------------------------
-  // OUTPUT SPINES (per segment + arrow)
+  // Vertical output spines
   // ---------------------------------
   const byX = {};
   for (const h of rightHelpers) {
@@ -926,16 +911,12 @@ function renderGraph(nodes, links, rootItem) {
       const y1 = helpers[i].y;
       const y2 = helpers[i + 1].y;
 
-      // main spine segment
       inner += `
-        <line
-          x1="${x}" y1="${y1}"
-          x2="${x}" y2="${y2}"
-          stroke="${defaultLineColor}"
-          stroke-width="1.6" />
+        <line x1="${x}" y1="${y1}"
+              x2="${x}" y2="${y2}"
+              stroke="${defaultLineColor}" stroke-width="1.6" />
       `;
 
-      // arrow — short vertical segment, centered & lifted
       const midY = (y1 + y2) / 2;
       const arrowY =
         midY +
@@ -944,7 +925,7 @@ function renderGraph(nodes, links, rootItem) {
         UP_ARROW_EXTRA_LIFT;
 
       inner += `
-        <polygon    
+        <polygon
           points="
             ${x},${arrowY - ARROW_HEIGHT}
             ${x - ARROW_HALF_WIDTH},${arrowY}
@@ -956,7 +937,7 @@ function renderGraph(nodes, links, rootItem) {
   }
 
   // ---------------------------------
-  // INPUT SPINES (per segment + arrow)
+  // Vertical input spines
   // ---------------------------------
   const byXInput = {};
   for (const h of leftHelpers) {
@@ -966,25 +947,19 @@ function renderGraph(nodes, links, rootItem) {
 
   for (const helpers of Object.values(byXInput)) {
     if (helpers.length < 2) continue;
-
-    // top → bottom
-    helpers.sort((a, b) => a.y - b.y);
+    helpers.sort((a,b)=>a.y - b.y);
 
     for (let i = 0; i < helpers.length - 1; i++) {
       const x = helpers[i].x;
       const y1 = helpers[i].y;
       const y2 = helpers[i + 1].y;
 
-      // vertical spine segment
       inner += `
-        <line
-          x1="${x}" y1="${y1}"
-          x2="${x}" y2="${y2}"
-          stroke="${defaultLineColor}"
-          stroke-width="1.6" />
+        <line x1="${x}" y1="${y1}"
+              x2="${x}" y2="${y2}"
+              stroke="${defaultLineColor}" stroke-width="1.6" />
       `;
 
-      // arrow — SAME OFFSET MAGNITUDE as output, inverted direction
       const midY = (y1 + y2) / 2;
       const arrowY =
         midY -
@@ -1004,36 +979,37 @@ function renderGraph(nodes, links, rootItem) {
   }
 
   // ---------------------------------
-  // HORIZONTAL TOP CONNECTIONS (→)
+  // HORIZONTAL TOP CONNECTIONS (RIGHT → LEFT)
   // ---------------------------------
-  const depths = Object.keys(rightByDepth)
-    .map(Number)
-    .sort((a, b) => a - b);
+  const rightTopByDepth = {};
+  const leftTopByDepth = {};
 
-  for (const d of depths) {
-    const fromCol = rightByDepth[d];
-    const toCol   = leftByDepth[d + 1];
+  for (const h of rightHelpers) {
+    if (!rightTopByDepth[h.depth] || h.y < rightTopByDepth[h.depth].y) {
+      rightTopByDepth[h.depth] = h;
+    }
+  }
 
-    if (!fromCol || !toCol) continue;
+  for (const h of leftHelpers) {
+    if (!leftTopByDepth[h.depth] || h.y < leftTopByDepth[h.depth].y) {
+      leftTopByDepth[h.depth] = h;
+    }
+  }
 
-    // TOP helper in each column
-    const from = fromCol.sort((a, b) => a.y - b.y)[0];
-    const to   = toCol.sort((a, b) => a.y - b.y)[0];
+  for (const d of Object.keys(rightTopByDepth).map(Number)) {
+    const from = rightTopByDepth[d];
+    const to = leftTopByDepth[d + 1];
+    if (!from || !to) continue;
 
     const y = from.y;
     const midX = (from.x + to.x) / 2;
 
-    // horizontal line
     inner += `
       <line
         x1="${from.x}" y1="${y}"
         x2="${to.x}"   y2="${y}"
         stroke="${defaultLineColor}"
         stroke-width="1.6" />
-    `;
-
-    // centered right-pointing arrow
-    inner += `
       <polygon
         points="
           ${midX + H_ARROW_WIDTH},${y}
@@ -1045,7 +1021,7 @@ function renderGraph(nodes, links, rootItem) {
   }
 
   // ---------------------------------
-  // Nodes (LAST → fixes blur box)
+  // Nodes
   // ---------------------------------
   for (const node of nodes) {
     const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
