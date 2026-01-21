@@ -915,16 +915,17 @@ function renderGraph(nodes, links, rootItem) {
     const bottomAnchorY = Math.max(...ysAnch);
     const spineX = outputAnchors[0].x;
 
-    // Vertical spine (no arrow)
+  // Vertical flow into next column (WITH arrow)
     spineSvg += `
       <line
         class="graph-spine-vertical"
-        x1="${spineX}"
-        y1="${bottomAnchorY}"
-        x2="${spineX}"
-        y2="${topAnchorY}"
+        x1="${nextSpineX}"
+        y1="${topAnchorY}"
+        x2="${nextSpineX}"
+        y2="${topInY}"
         stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
         stroke-width="2"
+        marker-end="url(#arrow-down)"
       />
     `;
 
