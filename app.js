@@ -334,13 +334,10 @@ function buildGraphData(chain, rootItem) {
 })();
 
 /* ===============================
-   renderGraph (input bypass dots placed at same height as output bypass dots)
+   renderGraph (connect bypass output dots to their input-side counterparts)
    - Full replacement function
-   - Output bypass dots computed as before (global shortestGap above top output helper)
-   - Input bypass dots for consuming columns are placed at the exact same Y as the corresponding output bypass dot
-     (X is still the consumer column's input anchor X so the pair is visually aligned horizontally to their columns)
-   - Preserves all previous behavior: BBM alignment, smelter left-anchor suppression,
-     no right helper for final column, node->node raw lines, spines, connectors, anchor spacing
+   - Draws straight connectors between each output bypass dot and each matching input bypass dot
+   - Preserves all previous behavior (anchors, spines, connectors, BBM rules, final-column suppression)
    =============================== */
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
@@ -413,7 +410,7 @@ function renderGraph(nodes, links, rootItem) {
   const minDepth = nodes.length ? Math.min(...nodes.map(n => n.depth)) : 0;
   const maxDepth = nodes.length ? Math.max(...nodes.map(n => n.depth)) : 0;
 
-  // Determine which anchors will render (so we can compute global helper-dot Ys)
+  // Determine which anchors will render
   const willRenderAnchors = [];
   for (const node of nodes) {
     const hideAllAnchors = (node.raw && node.depth === minDepth);
@@ -448,7 +445,7 @@ function renderGraph(nodes, links, rootItem) {
     shortestGap = nodeRadius + ANCHOR_OFFSET;
   }
 
-  // Compute output bypass dots (one per output column when needed)
+  // Compute output bypass dots
   const depthsSorted = Object.keys(columns).map(d => Number(d)).sort((a, b) => a - b);
   const needsOutputBypass = new Map(); // depth -> { x, y, causingConsumers:Set }
 
@@ -481,8 +478,6 @@ function renderGraph(nodes, links, rootItem) {
   }
 
   // Compute input bypass dots: place at the same Y as the output bypass dot(s)
-  // For each consumer depth referenced by an output bypass, place a single input bypass dot at that consumer column,
-  // using the consumer column's top input anchor X and the output bypass Y (so heights match).
   const needsInputBypass = new Map(); // consumerDepth -> { x, y }
   for (const [outDepth, info] of needsOutputBypass.entries()) {
     for (const consumerDepth of info.causingConsumers) {
@@ -492,7 +487,7 @@ function renderGraph(nodes, links, rootItem) {
 
       const topInputNode = inputNodes.reduce((a, b) => (a.y < b.y ? a : b));
       const inputAnchorX = anchorLeftPos(topInputNode).x;
-      const inputBypassY = info.y; // IMPORTANT: same Y as the output bypass dot
+      const inputBypassY = info.y; // same Y as output bypass dot
 
       if (!needsInputBypass.has(consumerDepth)) {
         needsInputBypass.set(consumerDepth, { x: inputAnchorX, y: inputBypassY });
@@ -500,7 +495,7 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
-  // Build spines (unchanged logic, uses anchors)
+  // Build spines (unchanged)
   let spineSvg = '';
   (function buildSpines() {
     for (let i = 0; i < depthsSorted.length; i++) {
@@ -668,13 +663,28 @@ function renderGraph(nodes, links, rootItem) {
     `;
   }
 
-  // Render input bypass dots at the same Y as their corresponding output bypass dots
+  // Render input bypass dots
   for (const [consumerDepth, pos] of needsInputBypass.entries()) {
     inner += `
       <g class="bypass-dot bypass-input" data-depth="${consumerDepth}" transform="translate(${pos.x},${pos.y})" aria-hidden="false">
         <circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="${bypassFill}" stroke="${isDark ? '#000' : '#fff'}" stroke-width="1.2" />
       </g>
     `;
+  }
+
+  // --- NEW: draw connectors between output bypass dots and their input bypass counterparts ---
+  // Straight lines, same Y (horizontal) where possible; if multiple consumers, draw one line per consumer.
+  for (const [outDepth, outInfo] of needsOutputBypass.entries()) {
+    for (const consumerDepth of outInfo.causingConsumers) {
+      const inPos = needsInputBypass.get(consumerDepth);
+      if (!inPos) continue;
+      // Draw a horizontal connector from output bypass to input bypass (same Y)
+      inner += `
+        <line class="bypass-connector" data-from-depth="${outDepth}" data-to-depth="${consumerDepth}"
+              x1="${outInfo.x}" y1="${outInfo.y}" x2="${inPos.x}" y2="${inPos.y}"
+              stroke="${isDark ? '#ddd' : '#444'}" stroke-width="1.6" stroke-linecap="round" opacity="0.95" />
+      `;
+    }
   }
 
   // Final SVG wrapper
