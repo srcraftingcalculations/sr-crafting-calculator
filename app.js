@@ -773,7 +773,8 @@ function renderGraph(nodes, links, rootItem) {
   const ANCHOR_OFFSET = 18;
   const ARROW_HALF_WIDTH = 5;
   const ARROW_HEIGHT = 8;
-  const ARROW_VISUAL_OFFSET = ARROW_HEIGHT / 2;
+  const ARROW_VISUAL_OFFSET = ARROW_HEIGHT / 2 +2;
+  const LABEL_OFFSET = 18;
 
   function roundCoord(v) { return Math.round(v * 100) / 100; }
 
@@ -1004,7 +1005,7 @@ function renderGraph(nodes, links, rootItem) {
       <g>
         <rect
           x="${node.x - width/2}"
-          y="${node.y - 36 - height/2}"
+          y="${node.y - nodeRadius - LABEL_OFFSET - height}"
           width="${width}"
           height="${height}"
           rx="6"
@@ -1012,9 +1013,9 @@ function renderGraph(nodes, links, rootItem) {
           stroke="var(--label-box-stroke)" />
         <text
           x="${node.x}"
-          y="${node.y - 36}"
+          y="${node.y - nodeRadius - LABEL_OFFSET - height / 2}"
           text-anchor="middle"
-          dominant-baseline="middle"
+          dy="0.35em"
           font-size="${fontSize}"
           font-weight="700"
           fill="var(--label-text-fill)">
