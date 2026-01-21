@@ -1332,7 +1332,6 @@ function runCalculator() {
 /* ===============================
    Initialization
    =============================== */
-
 async function init() {
   setupDarkMode();
   const data = await loadRecipes();
@@ -1344,22 +1343,18 @@ async function init() {
   const rateInput = document.getElementById("rateInput");
   const railSelect = document.getElementById("railSelect");
 
-  select.innerHTML = '<option value="" disabled selected>Select Item Here</option>' + items.map(it => `<option value="${escapeHtml(it)}">${escapeHtml(it)}</option>`).join("");
+  // Populate itemSelect with a placeholder and filtered recipe keys (exclude internal keys like _tiers)
+  if (itemSelect) {
+    const items = Object.keys(RECIPES).filter(k => !k.startsWith('_')).sort((a,b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    itemSelect.innerHTML = '<option value="" disabled selected>Select Item Here</option>' + items.map(it => `<option value="${escapeHtml(it)}">${escapeHtml(it)}</option>`).join("");
+  }
+
   if (railSelect) railSelect.innerHTML = `
     <option value="120">v1 (120/min)</option>
     <option value="240">v2 (240/min)</option>
     <option value="480">v3 (480/min)</option>
   `;
   if (rateInput) { rateInput.value = ""; rateInput.dataset.manual = ""; rateInput.placeholder = "Rate (/min)"; }
-
-  if (itemSelect) {
-    Object.keys(RECIPES).filter(k => k !== "_tiers").sort().forEach(item => {
-      const option = document.createElement('option');
-      option.value = item;
-      option.textContent = item;
-      itemSelect.appendChild(option);
-    });
-  }
 
   function getNaturalPerMinForSelected() {
     const slug = itemSelect?.value;
