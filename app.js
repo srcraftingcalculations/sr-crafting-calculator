@@ -1332,88 +1332,75 @@ function runCalculator() {
 /* ===============================
    Initialization
    =============================== */
+
 async function init() {
-  try {
-    setupDarkMode();
+  setupDarkMode();
+  const data = await loadRecipes();
+  RECIPES = data;
+  TIERS = data._tiers || {};
+  TIERS["Basic Building Material"] = 0;
 
-    // Load recipes and tiers
-    const data = await loadRecipes();
-    RECIPES = data || {};
-    TIERS = (data && data._tiers) ? data._tiers : {};
-    TIERS["Basic Building Material"] = 0;
+  const itemSelect = document.getElementById('itemSelect');
+  const rateInput = document.getElementById("rateInput");
+  const railSelect = document.getElementById("railSelect");
 
-    // Elements
-    const itemSelect = document.getElementById('itemSelect');
-    const rateInput = document.getElementById("rateInput");
-    const railSelect = document.getElementById("railSelect");
+  if (itemSelect) itemSelect.innerHTML = `<option value="" disabled selected>Select Item Here</option>`;
+  if (railSelect) railSelect.innerHTML = `
+    <option value="120">v1 (120/min)</option>
+    <option value="240">v2 (240/min)</option>
+    <option value="480">v3 (480/min)</option>
+  `;
+  if (rateInput) { rateInput.value = ""; rateInput.dataset.manual = ""; rateInput.placeholder = "Rate (/min)"; }
 
-    // Populate itemSelect safely (no observers, no mutation logic)
-    if (itemSelect) {
-      // Build items list excluding internal keys that start with '_'
-      const items = Object.keys(RECIPES || {})
-        .filter(k => typeof k === 'string' && !k.startsWith('_'))
-        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  if (itemSelect) {
+    Object.keys(RECIPES).filter(k => k !== "_tiers").sort().forEach(item => {
+      const option = document.createElement('option');
+      option.value = item;
+      option.textContent = item;
+      itemSelect.appendChild(option);
+    });
+  }
 
-      // Clear and add placeholder + items
-      itemSelect.innerHTML = '';
-      const placeholder = document.createElement('option');
-      placeholder.value = "";
-      placeholder.disabled = true;
-      placeholder.selected = true;
-      placeholder.textContent = "Select Item Here";
-      itemSelect.appendChild(placeholder);
+  function getNaturalPerMinForSelected() {
+    const slug = itemSelect?.value;
+    const recipe = RECIPES[slug];
+    if (!recipe || !recipe.output || !recipe.time) return null;
+    return Math.round((recipe.output / recipe.time) * 60);
+  }
 
-      for (const it of items) {
-        const option = document.createElement('option');
-        option.value = it;
-        option.textContent = it;
-        itemSelect.appendChild(option);
+  if (itemSelect && rateInput) {
+    itemSelect.addEventListener("change", () => {
+      const naturalPerMin = getNaturalPerMinForSelected();
+      if (!rateInput.dataset.manual) {
+        rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
       }
-    }
+      if (rateInput.value.trim() === "") {
+        rateInput.dataset.manual = "";
+        rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
+      }
+    });
 
-    // Rail select and rate input defaults
-    if (railSelect) railSelect.innerHTML = `
-      <option value="120">v1 (120/min)</option>
-      <option value="240">v2 (240/min)</option>
-      <option value="480">v3 (480/min)</option>
-    `;
-    if (rateInput) { rateInput.value = ""; rateInput.dataset.manual = ""; rateInput.placeholder = "Rate (/min)"; }
+    rateInput.addEventListener("input", () => {
+      const rawVal = rateInput.value;
+      if (rawVal.trim() === "") return;
+      const numeric = Number(rawVal);
+      if (!Number.isNaN(numeric)) {
+        rateInput.dataset.manual = "true";
+      }
+    });
 
-    // Helper to compute natural per-minute for selected item
-    function getNaturalPerMinForSelected() {
-      const slug = itemSelect?.value;
-      const recipe = RECIPES[slug];
-      if (!recipe || !recipe.output || !recipe.time) return null;
-      return Math.round((recipe.output / recipe.time) * 60);
-    }
-
-    // Wire up itemSelect <-> rateInput behavior
-    if (itemSelect && rateInput) {
-      // Remove any previous listeners to avoid duplicates
-      itemSelect.replaceWith(itemSelect.cloneNode(true));
-      const freshItemSelect = document.getElementById('itemSelect');
-
-      freshItemSelect.addEventListener("change", () => {
+    rateInput.addEventListener("blur", () => {
+      if (rateInput.value.trim() === "") {
+        rateInput.dataset.manual = "";
         const naturalPerMin = getNaturalPerMinForSelected();
-        if (!rateInput.dataset.manual) {
-          rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
-        }
-        if (rateInput.value.trim() === "") {
-          rateInput.dataset.manual = "";
-          rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
-        }
-      });
+        rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
+      } else {
+        rateInput.dataset.manual = "true";
+      }
+    });
 
-      rateInput.addEventListener("input", () => {
-        const rawVal = rateInput.value;
-        if (rawVal.trim() === "") return;
-        const numeric = Number(rawVal);
-        if (!Number.isNaN(numeric)) {
-          rateInput.dataset.manual = "true";
-        }
-      });
-
-      rateInput.addEventListener("blur", () => {
+    rateInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
         if (rateInput.value.trim() === "") {
           rateInput.dataset.manual = "";
           const naturalPerMin = getNaturalPerMinForSelected();
@@ -1421,140 +1408,60 @@ async function init() {
         } else {
           rateInput.dataset.manual = "true";
         }
-      });
-
-      rateInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-          if (rateInput.value.trim() === "") {
-            rateInput.dataset.manual = "";
-            const naturalPerMin = getNaturalPerMinForSelected();
-            rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
-          } else {
-            rateInput.dataset.manual = "true";
-          }
-        } else if (e.key === "Escape") {
-          rateInput.dataset.manual = "";
-          const naturalPerMin = getNaturalPerMinForSelected();
-          rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
-          rateInput.focus();
-        }
-      });
-    }
-
-    // Read URL params and apply if present
-    const params = new URLSearchParams(window.location.search);
-    const sharedItem = params.get("item");
-    const sharedRate = params.get("rate");
-    const sharedRail = params.get("rail");
-
-    if (sharedItem && itemSelect) {
-      // If the shared item isn't in the list, append it (so it can be selected)
-      const exists = Array.from(itemSelect.options).some(o => o.value === sharedItem);
-      if (!exists) {
-        const opt = document.createElement('option');
-        opt.value = sharedItem;
-        opt.textContent = sharedItem;
-        itemSelect.appendChild(opt);
+      } else if (e.key === "Escape") {
+        rateInput.dataset.manual = "";
+        const naturalPerMin = getNaturalPerMinForSelected();
+        rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
+        rateInput.focus();
       }
-      itemSelect.value = sharedItem;
-    }
-    if (sharedRate && rateInput) { rateInput.value = sharedRate; rateInput.dataset.manual = "true"; }
-    if (sharedRail && railSelect) railSelect.value = sharedRail;
-    if (sharedItem && sharedRate) runCalculator();
+    });
+  }
 
-    // Wire up buttons (remove previous listeners first to avoid duplicates)
-    const calcButton = document.getElementById("calcButton");
-    if (calcButton) {
-      calcButton.replaceWith(calcButton.cloneNode(true));
-      document.getElementById("calcButton").addEventListener("click", () => {
-        runCalculator();
-        const item = document.getElementById('itemSelect').value;
-        const rate = document.getElementById('rateInput').value;
-        const rail = document.getElementById('railSelect').value;
-        const newParams = new URLSearchParams({ item, rate, rail });
-        history.replaceState(null, "", "?" + newParams.toString());
+  const params = new URLSearchParams(window.location.search);
+  const sharedItem = params.get("item");
+  const sharedRate = params.get("rate");
+  const sharedRail = params.get("rail");
+
+  if (sharedItem && itemSelect) itemSelect.value = sharedItem;
+  if (sharedRate && rateInput) { rateInput.value = sharedRate; rateInput.dataset.manual = "true"; }
+  if (sharedRail && railSelect) railSelect.value = sharedRail;
+  if (sharedItem && sharedRate) runCalculator();
+
+  const calcButton = document.getElementById("calcButton");
+  if (calcButton) calcButton.addEventListener("click", () => {
+    runCalculator();
+    const item = itemSelect.value;
+    const rate = rateInput.value;
+    const rail = railSelect.value;
+    const newParams = new URLSearchParams({ item, rate, rail });
+    history.replaceState(null, "", "?" + newParams.toString());
+  });
+
+  const clearBtn = document.getElementById("clearStateBtn");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      if (rateInput) rateInput.dataset.manual = "";
+      const base = window.location.origin;
+      if (base.includes("localhost")) { window.location.href = "http://localhost:8000"; return; }
+      window.location.href = "https://srcraftingcalculations.github.io/sr-crafting-calculator/";
+    });
+  }
+
+  const shareButton = document.getElementById("shareButton");
+  if (shareButton) {
+    shareButton.addEventListener("click", () => {
+      const url = window.location.href;
+      navigator.clipboard.writeText(url).then(() => showToast("Shareable link copied!")).catch(() => {
+        const temp = document.createElement("input");
+        temp.value = url;
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand("copy");
+        temp.remove();
+        showToast("Shareable link copied!");
       });
-    }
-
-    const clearBtn = document.getElementById("clearStateBtn");
-    if (clearBtn) {
-      clearBtn.replaceWith(clearBtn.cloneNode(true));
-      document.getElementById("clearStateBtn").addEventListener("click", () => {
-        if (rateInput) rateInput.dataset.manual = "";
-        const base = window.location.origin;
-        if (base.includes("localhost")) { window.location.href = "http://localhost:8000"; return; }
-        window.location.href = "https://srcraftingcalculations.github.io/sr-crafting-calculator/";
-      });
-    }
-
-    const shareButton = document.getElementById("shareButton");
-    if (shareButton) {
-      shareButton.replaceWith(shareButton.cloneNode(true));
-      document.getElementById("shareButton").addEventListener("click", () => {
-        const url = window.location.href;
-        navigator.clipboard.writeText(url).then(() => showToast("Shareable link copied!")).catch(() => {
-          const temp = document.createElement("input");
-          temp.value = url;
-          document.body.appendChild(temp);
-          temp.select();
-          document.execCommand("copy");
-          temp.remove();
-          showToast("Shareable link copied!");
-        });
-      });
-    }
-
-    // Reattach info panel handlers (if they exist in your code)
-    // (This keeps the existing behavior but ensures handlers are present)
-    (function reattachInfoHandlers() {
-      const infoBtn = document.getElementById('infoButton');
-      const infoPanel = document.getElementById('infoPanel');
-      const infoClose = document.getElementById('infoClose');
-      if (!infoBtn || !infoPanel) return;
-
-      // Remove old listeners by replacing nodes, then re-add
-      infoBtn.replaceWith(infoBtn.cloneNode(true));
-      const newInfoBtn = document.getElementById('infoButton');
-      newInfoBtn.addEventListener('click', () => {
-        const expanded = newInfoBtn.getAttribute('aria-expanded') === 'true';
-        if (expanded) {
-          infoPanel.classList.remove('open');
-          infoPanel.setAttribute('aria-hidden', 'true');
-          newInfoBtn.setAttribute('aria-expanded', 'false');
-        } else {
-          const btnRect = newInfoBtn.getBoundingClientRect();
-          infoPanel.style.top = (window.scrollY + btnRect.bottom + 8) + 'px';
-          infoPanel.style.left = (window.scrollX + btnRect.left) + 'px';
-          infoPanel.classList.add('open');
-          infoPanel.setAttribute('aria-hidden', 'false');
-          newInfoBtn.setAttribute('aria-expanded', 'true');
-          infoClose && infoClose.focus();
-        }
-      });
-
-      if (infoClose) {
-        infoClose.replaceWith(infoClose.cloneNode(true));
-        document.getElementById('infoClose').addEventListener('click', () => {
-          infoPanel.classList.remove('open');
-          infoPanel.setAttribute('aria-hidden', 'true');
-          newInfoBtn.setAttribute('aria-expanded', 'false');
-          newInfoBtn.focus();
-        });
-      }
-
-      document.removeEventListener('click', window._infoDocClickHandler);
-      window._infoDocClickHandler = function (e) {
-        if (!infoPanel.classList.contains('open')) return;
-        if (infoPanel.contains(e.target) || newInfoBtn.contains(e.target)) return;
-        infoPanel.classList.remove('open');
-        infoPanel.setAttribute('aria-hidden', 'true');
-        newInfoBtn.setAttribute('aria-expanded', 'false');
-      };
-      document.addEventListener('click', window._infoDocClickHandler);
-    })();
-
-  } catch (err) {
-    console.error("init() error:", err);
-    showToast("Initialization error (see console).");
+    });
   }
 }
+
+init();
