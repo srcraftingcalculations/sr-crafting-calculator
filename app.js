@@ -463,58 +463,65 @@ function renderGraph(nodes, links, rootItem) {
   const ANCHOR_RADIUS = 5;
   const ANCHOR_HIT_RADIUS = 12;
   const ANCHOR_OFFSET = 18;
+  const BBM_ID = 'Basic Building Material';
 
   function roundCoord(v) { return Math.round(v * 100) / 100; }
   function anchorRightPos(node) { return { x: roundCoord(node.x + nodeRadius + ANCHOR_OFFSET), y: roundCoord(node.y) }; }
   function anchorLeftPos(node)  { return { x: roundCoord(node.x - nodeRadius - ANCHOR_OFFSET), y: roundCoord(node.y) }; }
 
-  // Ensure defaults on nodes
+  // defaults
   for (const n of nodes) {
     if (typeof n.hasInputAnchor === 'undefined') n.hasInputAnchor = true;
     if (typeof n.hasOutputAnchor === 'undefined') n.hasOutputAnchor = true;
     if (typeof n.depth === 'undefined') n.depth = 0;
   }
 
-  // Build quick lookup
+  // place BBM in smelter column if present
+  const bbmNode = nodes.find(n => n.id === BBM_ID || n.label === BBM_ID);
+  if (bbmNode) {
+    const smelterDepths = nodes.filter(n => n.building === 'Smelter').map(n => n.depth);
+    const fallbackDepths = nodes.filter(n => ['Calcium Block','Titanium Bar','Wolfram Bar'].includes(n.id)).map(n => n.depth);
+    const candidateDepths = smelterDepths.length ? smelterDepths : fallbackDepths;
+    if (candidateDepths.length) {
+      const counts = {};
+      candidateDepths.forEach(d => counts[d] = (counts[d] || 0) + 1);
+      const chosenDepth = Number(Object.keys(counts).sort((a,b) => counts[b] - counts[a])[0]);
+      bbmNode.depth = chosenDepth;
+    }
+  }
+
   const nodeById = new Map(nodes.map(n => [n.id, n]));
 
-  // --- IMPORTANT CHANGE ---
-  // Keep node depths exactly as computed by computeDepths (i.e., their level columns),
-  // except for a small, explicit exception: keep certain raw extractors (Helium-3, Sulphur Ore)
-  // positioned directly to the left of the item(s) they feed. This preserves the "left-of-consumer"
-  // visual for those resources while returning all other nodes to strict level columns.
+  // --- Exception: keep certain raw extractors directly left of their consumer ---
+  // Only these raw resources will be nudged left-of-consumer; everything else stays in its computed depth.
   const LEFT_OF_CONSUMER_RAWS = new Set(['Helium-3', 'Sulphur Ore']);
 
-  // Apply the exception: for each link where the source is a raw extractor in the set,
-  // place that raw node at consumer.depth - 1 (but not less than 0).
   for (const link of links) {
     const rawNode = nodeById.get(link.to);
     const consumer = nodeById.get(link.from);
     if (!rawNode || !consumer) continue;
     if (rawNode.raw && LEFT_OF_CONSUMER_RAWS.has(rawNode.id)) {
-      // place directly left of the consumer
+      // place directly left of the consumer (but not negative)
       const targetDepth = Math.max(0, (typeof consumer.depth === 'number' ? consumer.depth : 0) - 1);
       rawNode.depth = targetDepth;
     }
   }
 
-  // Group nodes strictly by depth (level columns)
+  // group by depth and layout (strict column placement)
   const columns = {};
   for (const node of nodes) {
     if (!columns[node.depth]) columns[node.depth] = [];
     columns[node.depth].push(node);
   }
-
-  // Sort nodes within each column for stable layout (alphabetical by label)
   for (const [depth, colNodes] of Object.entries(columns)) {
     colNodes.sort((a,b) => (String(a.label||a.id)).localeCompare(String(b.label||b.id), undefined, {sensitivity:'base'}));
     colNodes.forEach((node,i) => {
-      node.x = roundCoord(Number(depth) * GRAPH_COL_WIDTH + 100);
+      node.x = roundCoord(Number(depth) * MACHINE_COL_WIDTH + 100);
       node.y = roundCoord(i * GRAPH_ROW_HEIGHT + 100);
     });
   }
 
-  // Recompute bounds after strict column placement
+  // bounds
   const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
   const minX = nodes.length ? Math.min(...xs) : 0;
   const maxX = nodes.length ? Math.max(...xs) : 0;
@@ -528,22 +535,23 @@ function renderGraph(nodes, links, rootItem) {
   const minDepth = nodes.length ? Math.min(...nodes.map(n => n.depth)) : 0;
   const maxDepth = nodes.length ? Math.max(...nodes.map(n => n.depth)) : 0;
 
-  // Decide anchors (raw nodes in far-left column hide anchors; raw nodes placed by exception still show right anchor)
+  // decide anchors (raw nodes in far-left hide anchors)
   const willRenderAnchors = [];
   for (const node of nodes) {
     const hideAllAnchors = (node.raw && node.depth === minDepth);
     const isSmelter = (node.building === 'Smelter');
+    const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
     const rawRightOnly = !!(node.raw && node.depth !== minDepth);
 
-    if (!hideAllAnchors && !rawRightOnly && node.hasInputAnchor && !isSmelter) {
+    if (!hideAllAnchors && !rawRightOnly && node.hasInputAnchor && !isSmelter && !isBBM) {
       willRenderAnchors.push({ side:'left', node, pos: anchorLeftPos(node) });
     }
-    if (!hideAllAnchors && (node.hasOutputAnchor || rawRightOnly) && node.depth !== maxDepth) {
+    if (!hideAllAnchors && (node.hasOutputAnchor || rawRightOnly || isBBM) && node.depth !== maxDepth) {
       willRenderAnchors.push({ side:'right', node, pos: anchorRightPos(node) });
     }
   }
 
-  // Shortest gap for bypass placement (unchanged)
+  // shortest gap for bypass placement
   const uniqueYs = Array.from(new Set(willRenderAnchors.map(a => a.pos.y))).sort((a,b)=>a-b);
   let shortestGap = nodeRadius + ANCHOR_OFFSET;
   if (uniqueYs.length >= 2) {
@@ -556,12 +564,12 @@ function renderGraph(nodes, links, rootItem) {
   }
   shortestGap = roundCoord(shortestGap);
 
-  // Compute bypass centers (unchanged logic, works with strict columns)
+  // compute bypass centers
   const depthsSorted = Object.keys(columns).map(d=>Number(d)).sort((a,b)=>a-b);
   const needsOutputBypass = new Map();
   for (const depth of depthsSorted) {
     const colNodes = columns[depth] || [];
-    const outputs = colNodes.filter(n => !(n.raw && n.depth === minDepth) && (n.hasOutputAnchor) && n.depth !== maxDepth);
+    const outputs = colNodes.filter(n => !(n.raw && n.depth === minDepth) && (n.hasOutputAnchor || (n.id === BBM_ID || n.label === BBM_ID)) && n.depth !== maxDepth);
     if (!outputs.length) continue;
     const consumerDepths = new Set();
     for (const outNode of outputs) {
@@ -593,12 +601,12 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
-  // Expose for debugging
+  // expose for debugging
   window._needsOutputBypass = needsOutputBypass;
   window._needsInputBypass = needsInputBypass;
   window._graphNodes = nodes;
 
-  // Build spines (class-only; styling controlled by CSS)
+  // build spines (no inline stroke attributes)
   let spineSvg = '';
   (function buildSpines(){
     for (let i=0;i<depthsSorted.length;i++){
@@ -607,7 +615,7 @@ function renderGraph(nodes, links, rootItem) {
       const outputAnchors = [];
       for (const n of colNodes) {
         if (n.raw && n.depth === minDepth) continue;
-        if ((n.hasOutputAnchor) && n.depth !== maxDepth) {
+        if ((n.hasOutputAnchor || (n.id === BBM_ID || n.label === BBM_ID)) && n.depth !== maxDepth) {
           outputAnchors.push(anchorRightPos(n));
         }
       }
@@ -636,7 +644,7 @@ function renderGraph(nodes, links, rootItem) {
     }
   })();
 
-  // Build SVG inner content (edges, connectors, nodes, anchors, bypass dots)
+  // defs and initial inner
   let inner = `
     <defs>
       <filter id="labelBackdrop" x="-40%" y="-40%" width="180%" height="180%">
@@ -648,17 +656,18 @@ function renderGraph(nodes, links, rootItem) {
     ${spineSvg}
   `;
 
-  // Raw->smelter edges (class-only)
+  // raw->smelter edges (class-only)
   for (const link of links) {
     const rawSource = nodeById.get(link.to);
     const consumer = nodeById.get(link.from);
     if (!rawSource || !consumer) continue;
-    if (rawSource.raw && rawSource.depth === minDepth && (consumer.building === 'Smelter')) {
+    const consumerIsBBM = (consumer.id === BBM_ID || consumer.label === BBM_ID);
+    if (rawSource.raw && rawSource.depth === minDepth && (consumer.building === 'Smelter' || consumerIsBBM)) {
       inner += `<line class="graph-edge graph-edge-raw" data-from="${escapeHtml(rawSource.id)}" data-to="${escapeHtml(consumer.id)}" x1="${rawSource.x}" y1="${rawSource.y}" x2="${consumer.x}" y2="${consumer.y}" />`;
     }
   }
 
-  // Bypass connectors (class-only)
+  // bypass connectors (class-only)
   for (const [depth, info] of needsOutputBypass.entries()) {
     inner += `<line class="bypass-to-spine bypass-output-connector" data-depth="${depth}" x1="${info.x}" y1="${info.y}" x2="${info.x}" y2="${info.helperCenter.y}" />`;
   }
@@ -673,13 +682,14 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
-  // Node->anchor short connectors (class-only)
+  // node->anchor short connectors (class-only)
   for (const node of nodes) {
     const hideAllAnchors = (node.raw && node.depth === minDepth);
     const isSmelter = (node.building === 'Smelter');
+    const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
     const rawRightOnly = !!(node.raw && node.depth !== minDepth);
-    const showLeftAnchor = !hideAllAnchors && !rawRightOnly && node.hasInputAnchor && !isSmelter;
-    const showRightAnchor = !hideAllAnchors && (node.hasOutputAnchor || rawRightOnly) && (node.depth !== maxDepth);
+    const showLeftAnchor = !hideAllAnchors && !rawRightOnly && node.hasInputAnchor && !isSmelter && !isBBM;
+    const showRightAnchor = !hideAllAnchors && (node.hasOutputAnchor || rawRightOnly || isBBM) && (node.depth !== maxDepth);
 
     if (showLeftAnchor) {
       const a = anchorLeftPos(node);
@@ -691,7 +701,7 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
-  // Nodes, labels, anchors (node fills/strokes kept inline)
+  // nodes, labels, anchors (node fills/strokes kept inline for clarity)
   for (const node of nodes) {
     const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
     const strokeColor = "#2c3e50";
@@ -702,9 +712,10 @@ function renderGraph(nodes, links, rootItem) {
 
     const hideAllAnchors = (node.raw && node.depth === minDepth);
     const isSmelter = (node.building === 'Smelter');
+    const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
     const rawRightOnly = !!(node.raw && node.depth !== minDepth);
-    const showLeftAnchor = !hideAllAnchors && !rawRightOnly && node.hasInputAnchor && !isSmelter;
-    const showRightAnchor = !hideAllAnchors && (node.hasOutputAnchor || rawRightOnly) && (node.depth !== maxDepth);
+    const showLeftAnchor = !hideAllAnchors && !rawRightOnly && node.hasInputAnchor && !isSmelter && !isBBM;
+    const showRightAnchor = !hideAllAnchors && (node.hasOutputAnchor || rawRightOnly || isBBM) && (node.depth !== maxDepth);
 
     const approxCharWidth = 7;
     const labelBoxWidth = Math.max(48, Math.ceil(labelText.length * approxCharWidth) + labelPaddingX * 2);
@@ -732,7 +743,7 @@ function renderGraph(nodes, links, rootItem) {
     inner += `</g>`;
   }
 
-  // Bypass dots
+  // bypass dots
   for (const [depth, info] of needsOutputBypass.entries()) {
     inner += `<g class="bypass-dot bypass-output" data-depth="${depth}" transform="translate(${info.x},${info.y})" aria-hidden="false"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
   }
@@ -740,7 +751,7 @@ function renderGraph(nodes, links, rootItem) {
     inner += `<g class="bypass-dot bypass-input" data-depth="${consumerDepth}" transform="translate(${pos.x},${pos.y})" aria-hidden="false"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
   }
 
-  // Initial CSS vars from current theme (applied inline on wrapper for immediate correctness)
+  // initial CSS vars from current theme (applied inline on wrapper for immediate correctness)
   const dark = !!(typeof isDarkMode === 'function' ? isDarkMode() : false);
   const initialVars = {
     '--line-color': dark ? '#dcdcdc' : '#444444',
@@ -765,7 +776,7 @@ function renderGraph(nodes, links, rootItem) {
 
   const html = `<div class="graphWrapper" data-vb="${viewBoxX},${viewBoxY},${viewBoxW},${viewBoxH}" style="${wrapperStyle}"><div class="graphViewport"><svg xmlns="http://www.w3.org/2000/svg" class="graphSVG" viewBox="${viewBoxX} ${viewBoxY} ${viewBoxW} ${viewBoxH}" preserveAspectRatio="xMidYMid meet"><g id="zoomLayer">${inner}</g></svg></div></div>`;
 
-  // Install theme observer once (keeps wrappers in sync with :root.dark)
+  // install observer once to update CSS vars on theme change
   (function installThemeObserverOnce(){
     if (window._graphThemeObserverInstalled) return;
     window._graphThemeObserverInstalled = true;
@@ -796,6 +807,7 @@ function renderGraph(nodes, links, rootItem) {
       });
     }
 
+    // Observe documentElement attribute changes (class/data-theme/theme)
     const target = document.documentElement || document.body;
     try {
       const mo = new MutationObserver(mutations => {
