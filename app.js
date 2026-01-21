@@ -871,7 +871,7 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
-  // Helper → Helper (VERTICAL WITH CENTERED UP ARROW)
+  // Helper → Helper (vertical, centered arrow, offset upward)
   {
     const wolfram = nodes.find(n => n.id === 'Wolfram Bar');
     const titanium = nodes.find(n => n.id === 'Titanium Bar');
@@ -881,18 +881,24 @@ function renderGraph(nodes, links, rootItem) {
       const b = anchorRightPos(titanium);
 
       const x = a.x;
-      const y1 = Math.min(a.y, b.y);
-      const y2 = Math.max(a.y, b.y);
-      const midY = roundCoord((y1 + y2) / 2);
+      const yTop = Math.min(a.y, b.y);
+      const yBottom = Math.max(a.y, b.y);
+
+      // Push arrow ABOVE true center to avoid label collision
+      const arrowOffset = 18;
+      const arrowY = roundCoord(((yTop + yBottom) / 2) - arrowOffset);
 
       inner += `
-        <path d="M ${x} ${y2}
-                 L ${x} ${midY}
-                 L ${x} ${y1}"
-              fill="none"
-              stroke="${defaultLineColor}"
-              stroke-width="1.6"
-              marker-mid="url(#arrow-up-mid)" />
+        <path
+          d="
+            M ${x} ${yBottom}
+            L ${x} ${arrowY}
+            L ${x} ${yTop}
+          "
+          fill="none"
+          stroke="${defaultLineColor}"
+          stroke-width="1.6"
+          marker-mid="url(#arrow-up-mid)" />
       `;
     }
   }
@@ -900,9 +906,28 @@ function renderGraph(nodes, links, rootItem) {
   // Nodes
   for (const node of nodes) {
     const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
+    const label = String(node.label || node.id);
+    const fontSize = 13;
+    const padX = 10, padY = 8;
+    const width = Math.max(48, label.length * 7 + padX*2);
+    const height = fontSize + padY*2;
+
     inner += `
-      <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
-              fill="${fillColor}" stroke="#2c3e50" stroke-width="2"/>
+      <g class="graph-node">
+        <rect x="${node.x - width/2}" y="${node.y - GRAPH_LABEL_OFFSET - height/2}"
+              width="${width}" height="${height}" rx="6"
+              fill="var(--label-box-fill)" stroke="var(--label-box-stroke)"/>
+        <text x="${node.x}" y="${node.y - GRAPH_LABEL_OFFSET}"
+              text-anchor="middle" dominant-baseline="middle"
+              font-size="${fontSize}" font-weight="700"
+              fill="var(--label-text-fill)">${label}</text>
+        <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
+                fill="${fillColor}" stroke="#2c3e50" stroke-width="2"/>
+        ${node.raw ? '' : `<text x="${node.x}" y="${node.y}"
+          text-anchor="middle" dominant-baseline="middle"
+          font-size="13" font-weight="700"
+          fill="var(--label-text-fill)">${Math.ceil(node.machines)}</text>`}
+      </g>
     `;
   }
 
