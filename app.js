@@ -1124,9 +1124,13 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     zoomAt(newScale, ev.clientX, ev.clientY);
   }, { passive: false });
 
+  // inside setupGraphZoom: replace existing pointer handlers with this block
+
   svg.addEventListener('pointerdown', (ev) => {
+    // ignore node drags
     if (pointerIsOnNode(ev)) return;
-    if (ev.button !== 0) return;
+    // only left button and primary pointer should start panning
+    if (ev.button !== 0 || !ev.isPrimary) return;
     isPanning = true;
     activePointerId = ev.pointerId;
     startX = ev.clientX;
@@ -1136,7 +1140,8 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
   });
 
   window.addEventListener('pointermove', (ev) => {
-    if (!isPanning || ev.pointerId !== activePointerId) return;
+    // only respond to the active primary pointer
+    if (!isPanning || ev.pointerId !== activePointerId || !ev.isPrimary) return;
     const dxScreen = ev.clientX - startX;
     const dyScreen = ev.clientY - startY;
     startX = ev.clientX;
@@ -1155,10 +1160,11 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
   });
 
   window.addEventListener('pointerup', (ev) => {
-    if (!isPanning || ev.pointerId !== activePointerId) return;
+    // only end panning for the active pointer
+    if (ev.pointerId !== activePointerId) return;
     isPanning = false;
-    activePointerId = null;
     try { svg.releasePointerCapture(ev.pointerId); } catch (e) {}
+    activePointerId = null;
     svg.style.cursor = 'grab';
   });
 
