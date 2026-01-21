@@ -53,65 +53,63 @@ function getTextColor(bg) {
 }
 
 /* ===============================
-   Theme helpers (replaced)
-   - isDarkMode: prefer documentElement class, fallback to system preference
-   - applyThemeClass: toggle root class and update graph wrappers (via updater or fallback)
-   - DOMContentLoaded wiring for toggle button
+   Theme helpers (restored original behavior)
+   - isDarkMode: checks body class or body dark-mode class
+   - setupDarkMode: reads localStorage, applies class, wires toggle button
    =============================== */
 function isDarkMode() {
-  // Primary: check document root class
-  if (document.documentElement.classList.contains('dark')) return true;
-  // Fallback: respect system preference
-  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return true;
-  return false;
+  return document.body.classList.contains('dark') || document.body.classList.contains('dark-mode');
 }
 
-function applyThemeClass(dark) {
-  if (dark) document.documentElement.classList.add('dark');
-  else document.documentElement.classList.remove('dark');
-
-  // If renderGraph installed the updater, call it to refresh graph wrappers
-  if (typeof window._updateGraphThemeVars === 'function') {
-    try { window._updateGraphThemeVars(); } catch (e) { /* ignore */ }
-    return;
-  }
-
-  // Fallback: update inline CSS vars on existing .graphWrapper elements
-  const vars = {
-    '--line-color': dark ? '#dcdcdc' : '#444444',
-    '--spine-color': dark ? '#bdbdbd' : '#666666',
-    '--raw-edge-color': '#333333',
-    '--label-box-fill': dark ? 'rgba(0,0,0,0.88)' : 'rgba(255,255,255,0.92)',
-    '--label-box-stroke': dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-    '--label-text-fill': dark ? '#ffffff' : '#111111',
-    '--label-text-stroke': dark ? '#000000' : '#ffffff',
-    '--label-text-stroke-width': dark ? '1.0' : '0.6',
-    '--anchor-dot-fill': dark ? '#ffffff' : '#2c3e50',
-    '--anchor-dot-stroke': dark ? '#000000' : '#ffffff',
-    '--bypass-fill': dark ? '#ffffff' : '#2c3e50',
-    '--bypass-stroke': dark ? '#000000' : '#ffffff'
-  };
-  document.querySelectorAll('.graphWrapper').forEach(w => {
-    for (const [k, v] of Object.entries(vars)) w.style.setProperty(k, v);
-  });
-}
-
-// Wire the toggle button
-document.addEventListener('DOMContentLoaded', () => {
-  const toggle = document.getElementById('darkModeToggle');
+function setupDarkMode() {
+  const toggle = document.getElementById("darkModeToggle");
   if (!toggle) return;
 
-  // initialize button label and theme from current state
-  const dark = isDarkMode();
-  applyThemeClass(dark);
-  toggle.textContent = dark ? '☀️ Light Mode' : '🌙 Dark Mode';
+  const saved = localStorage.getItem("darkMode");
+  if (saved === "true") {
+    document.body.classList.add("dark");
+    toggle.textContent = "☀️ Light Mode";
+  } else {
+    // If no saved preference, respect system preference
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches && saved === null) {
+      document.body.classList.add("dark");
+      toggle.textContent = "☀️ Light Mode";
+    } else {
+      document.body.classList.remove("dark");
+      toggle.textContent = "🌙 Dark Mode";
+    }
+  }
 
-  toggle.addEventListener('click', () => {
-    const nowDark = !document.documentElement.classList.contains('dark');
-    applyThemeClass(nowDark);
-    toggle.textContent = nowDark ? '☀️ Light Mode' : '🌙 Dark Mode';
+  toggle.addEventListener("click", () => {
+    const isDark = document.body.classList.toggle("dark");
+    localStorage.setItem("darkMode", isDark);
+    toggle.textContent = isDark ? "☀️ Light Mode" : "🌙 Dark Mode";
+    // If renderGraph installed the updater, call it to refresh graph wrappers
+    if (typeof window._updateGraphThemeVars === 'function') {
+      try { window._updateGraphThemeVars(); } catch (e) { /* ignore */ }
+    } else {
+      // fallback: update inline vars on existing wrappers
+      const darkNow = isDarkMode();
+      const vars = {
+        '--line-color': darkNow ? '#dcdcdc' : '#444444',
+        '--spine-color': darkNow ? '#bdbdbd' : '#666666',
+        '--raw-edge-color': '#333333',
+        '--label-box-fill': darkNow ? 'rgba(0,0,0,0.88)' : 'rgba(255,255,255,0.92)',
+        '--label-box-stroke': darkNow ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+        '--label-text-fill': darkNow ? '#ffffff' : '#111111',
+        '--label-text-stroke': darkNow ? '#000000' : '#ffffff',
+        '--label-text-stroke-width': darkNow ? '1.0' : '0.6',
+        '--anchor-dot-fill': darkNow ? '#ffffff' : '#2c3e50',
+        '--anchor-dot-stroke': darkNow ? '#000000' : '#ffffff',
+        '--bypass-fill': darkNow ? '#ffffff' : '#2c3e50',
+        '--bypass-stroke': darkNow ? '#000000' : '#ffffff'
+      };
+      document.querySelectorAll('.graphWrapper').forEach(w => {
+        for (const [k, v] of Object.entries(vars)) w.style.setProperty(k, v);
+      });
+    }
   });
-});
+}
 
 /* ===============================
    Toast helper
@@ -1368,18 +1366,12 @@ function runCalculator() {
 }
 
 /* ===============================
-   Dark mode toggle (legacy setup removed; replaced by new helpers above)
-   =============================== */
-/* (setupDarkMode removed — replaced by isDarkMode/applyThemeClass wiring) */
-
-/* ===============================
    Initialization
    =============================== */
 
 async function init() {
-  // Initialize theme state via the new helpers
-  const dark = isDarkMode();
-  applyThemeClass(dark);
+  // Restore original dark mode initialization
+  setupDarkMode();
 
   const data = await loadRecipes();
   RECIPES = data;
