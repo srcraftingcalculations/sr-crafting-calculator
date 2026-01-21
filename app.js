@@ -1060,7 +1060,7 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     const clamped = clampTranslation(tx, ty, scale);
     tx = clamped.tx;
     ty = clamped.ty;
-    zoomLayer.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+    zoomLayer.setAttribute('transform', `scale(${scale}) translate(${tx},${ty})`);
   }
 
   function zoomAt(newScale, cx, cy) {
