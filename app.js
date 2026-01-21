@@ -1083,7 +1083,18 @@ function renderGraph(nodes, links, rootItem) {
   // BYPASS HELPER DOTS (TRUE HELPERS)
   // ---------------------------------
 
-  const BYPASS_VERTICAL_OFFSET = 60;
+  // Compute true vertical unit per column (same spacing as spines)
+  function getVerticalUnit(helpersByX) {
+    for (const helpers of Object.values(helpersByX)) {
+      if (helpers.length >= 2) {
+        return helpers[1].y - helpers[0].y;
+      }
+    }
+    return GRAPH_ROW_HEIGHT; // safe fallback
+  }
+
+  const verticalUnitOut = getVerticalUnit(byX);
+  const verticalUnitIn  = getVerticalUnit(byXInput);
 
   // Output-side bypass helper dots
   for (const depth of bypassOutputDepths) {
@@ -1093,7 +1104,7 @@ function renderGraph(nodes, links, rootItem) {
     inner += `
       <circle
         cx="${h.x}"
-        cy="${h.y - BYPASS_VERTICAL_OFFSET}"
+        cy="${h.y - verticalUnitOut}"
         r="${BYPASS_RADIUS}"
         fill="var(--bypass-fill)"
         stroke="var(--bypass-stroke)"
@@ -1110,7 +1121,7 @@ function renderGraph(nodes, links, rootItem) {
     inner += `
       <circle
         cx="${h.x}"
-        cy="${h.y - BYPASS_VERTICAL_OFFSET}"
+        cy="${h.y - verticalUnitIn}"
         r="${BYPASS_RADIUS}"
         fill="var(--bypass-fill)"
         stroke="var(--bypass-stroke)"
