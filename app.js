@@ -909,13 +909,29 @@ function renderGraph(nodes, links, rootItem) {
     helpers.sort((a,b)=>a.y - b.y);
 
     for (let i = 0; i < helpers.length - 1; i++) {
+      const x = helpers[i].x;
+      const y1 = helpers[i].y;
+      const y2 = helpers[i + 1].y;
+
+      // main spine segment
       inner += `
         <line
-          x1="${helpers[i].x}" y1="${helpers[i].y}"
-          x2="${helpers[i+1].x}" y2="${helpers[i+1].y}"
+          x1="${x}" y1="${y1}"
+          x2="${x}" y2="${y2}"
           stroke="${defaultLineColor}"
-          stroke-width="1.6"
-          marker-mid="url(#arrowUp)" />
+          stroke-width="1.6" />
+      `;
+
+      // arrow — short vertical segment, centered & lifted
+      const midY = (y1 + y2) / 2 - 10;
+
+      inner += `
+        <line
+          x1="${x}" y1="${midY - 4}"
+          x2="${x}" y2="${midY + 4}"
+          stroke="transparent"
+          stroke-width="1"
+          marker-end="url(#arrowUp)" />
       `;
     }
   }
