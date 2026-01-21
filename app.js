@@ -1,4 +1,4 @@
-// app.js - Rewritten, complete file
+// app.js - Rewritten, complete file (pulse mechanics removed)
 // - loadRecipes: data-only (no DOM mutations)
 // - init: canonical initializer, populates UI and wires handlers
 // - Full renderGraph and zoom/pan implementations restored from banked code
@@ -428,38 +428,6 @@ function buildGraphData(chain, rootItem) {
 /* ===============================
    Graph rendering (full)
    =============================== */
-(function injectPulseStylesIfMissing() {
-  if (document.getElementById('graphPulseStyles')) return;
-  const style = document.createElement('style');
-  style.id = 'graphPulseStyles';
-  style.textContent = `
-    @keyframes nodePulse {
-      0% { stroke-width: 2; filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
-      50% { stroke-width: 6; filter: drop-shadow(0 0 10px rgba(255,200,50,0.9)); }
-      100% { stroke-width: 2; filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
-    }
-    @keyframes edgePulse {
-      0% { stroke-opacity: 0.6; stroke-width: 2; }
-      50% { stroke-opacity: 1; stroke-width: 4; }
-      100% { stroke-opacity: 0.6; stroke-width: 2; }
-    }
-    circle.pulse-origin { animation: nodePulse 900ms ease-in-out infinite; stroke: #ffd27a !important; }
-    circle.pulse-node { animation: nodePulse 900ms ease-in-out infinite; stroke: #ffcc66 !important; }
-    line.pulse-edge { animation: edgePulse 900ms ease-in-out infinite; stroke: #ffcc66 !important; }
-    @media (prefers-reduced-motion: reduce) {
-      circle.pulse-origin, circle.pulse-node { animation: none !important; stroke-width: 4 !important; stroke: #ffd27a !important; }
-      line.pulse-edge { animation: none !important; stroke-width: 3 !important; stroke-opacity: 1 !important; }
-    }
-
-    .graphSVG line { stroke-linecap: round; stroke-opacity: 0.95; }
-    .graph-edge, .node-to-anchor, .bypass-connector { stroke: var(--line-color); stroke-width: 1.6; stroke-linecap: round; stroke-opacity: 0.95; }
-    .graph-spine-vertical, .graph-spine-horizontal { stroke: var(--spine-color); stroke-width: 2; stroke-linecap: round; stroke-opacity: 0.95; }
-    .graph-edge-raw { stroke: var(--raw-edge-color); stroke-width: 2.6; stroke-linecap: round; stroke-opacity: 1; }
-    .bypass-to-spine, .bypass-input-connector, .bypass-output-connector { stroke: var(--line-color); stroke-width: 1.4; stroke-linecap: butt; stroke-opacity: 0.95; }
-  `;
-  document.head.appendChild(style);
-})();
-
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
   const ANCHOR_RADIUS = 5;
@@ -811,106 +779,37 @@ function renderGraph(nodes, links, rootItem) {
 }
 
 /* ===============================
-   Highlighting (strict immediate-only, toggle)
+   Highlighting removed (no pulses)
    =============================== */
-function clearPulses(svg) {
-  if (!svg) return;
-  svg.querySelectorAll('circle.pulse-origin, circle.pulse-node, line.pulse-edge').forEach(el => {
-    el.classList.remove('pulse-origin', 'pulse-node', 'pulse-edge');
-  });
-}
-
-function highlightOutgoing(nodeId, svg) {
-  if (!svg || !nodeId) return;
-
-  const originCircle = svg.querySelector(`circle.graph-node-circle[data-id="${CSS.escape(nodeId)}"]`);
-  if (originCircle && originCircle.classList.contains('pulse-origin')) {
-    clearPulses(svg);
-    return;
-  }
-
-  clearPulses(svg);
-
-  if (originCircle) originCircle.classList.add('pulse-origin');
-
-  const outgoing = Array.from(svg.querySelectorAll(`line.graph-edge[data-from="${CSS.escape(nodeId)}"]`));
-
-  outgoing.forEach(edgeEl => {
-    edgeEl.classList.add('pulse-edge');
-    const toId = edgeEl.getAttribute('data-to');
-    const targetCircle = svg.querySelector(`circle.graph-node-circle[data-id="${CSS.escape(toId)}"]`);
-    if (targetCircle) targetCircle.classList.add('pulse-node');
-  });
-}
+/* No-op stubs kept so other code can call these safely */
+function clearPulses(svg) { /* pulses removed */ }
+function highlightOutgoing(nodeId, svg) { /* pulses removed */ }
 
 /* ===============================
    Pointer handling (centralized on wrapper)
+   - simplified: no pulse/click highlighting
    =============================== */
 function attachNodePointerHandlers(wrapper) {
   if (!wrapper) return;
+  // Guard to avoid reinstalling handlers on re-render
+  if (wrapper._nodePointerHandlersInstalled) return;
+  wrapper._nodePointerHandlersInstalled = true;
+
   const svg = wrapper.querySelector('svg.graphSVG');
   if (!svg) return;
 
-  const pointerMap = new Map();
-
-  function getThreshold(ev) {
-    return (ev && ev.pointerType === 'touch') ? TOUCH_THRESHOLD_PX : DRAG_THRESHOLD_PX;
-  }
-
-  wrapper.addEventListener('pointerdown', (ev) => {
-    const nodeGroup = ev.target.closest && ev.target.closest('g.graph-node[data-id]');
-    if (!nodeGroup) return;
-    ev.stopPropagation();
-    try { nodeGroup.setPointerCapture?.(ev.pointerId); } catch (e) {}
-    const nodeId = nodeGroup.getAttribute('data-id');
-    pointerMap.set(ev.pointerId, { nodeId, startX: ev.clientX, startY: ev.clientY, isDragging: false });
-  }, { passive: false });
-
-  window.addEventListener('pointermove', (ev) => {
-    const entry = pointerMap.get(ev.pointerId);
-    if (!entry) return;
-    if (entry.isDragging) return;
-    const dx = ev.clientX - entry.startX;
-    const dy = ev.clientY - entry.startY;
-    if (Math.hypot(dx, dy) > getThreshold(ev)) {
-      entry.isDragging = true;
-      pointerMap.set(ev.pointerId, entry);
-    }
-  }, { passive: true });
-
-  wrapper.addEventListener('pointerup', (ev) => {
-    const entry = pointerMap.get(ev.pointerId);
-    if (!entry) return;
-    try {
-      const nodeGroup = document.querySelector(`g.graph-node[data-id="${CSS.escape(entry.nodeId)}"]`);
-      nodeGroup && nodeGroup.releasePointerCapture?.(ev.pointerId);
-    } catch (e) {}
-    if (!entry.isDragging) {
-      highlightOutgoing(entry.nodeId, svg);
-    }
-    pointerMap.delete(ev.pointerId);
-    ev.stopPropagation();
-  }, { passive: false });
-
-  wrapper.addEventListener('pointercancel', (ev) => {
-    pointerMap.delete(ev.pointerId);
-  });
-
+  // Keep keyboard accessibility but do not trigger any visual pulses or click highlights.
   svg.querySelectorAll('g.graph-node[data-id]').forEach(group => {
     group.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter' || ev.key === ' ') {
         ev.preventDefault();
-        const nodeId = group.getAttribute('data-id');
-        highlightOutgoing(nodeId, svg);
+        // Intentionally no-op: reserved for future actions (no pulses)
       }
     });
   });
 
-  function onDocClick(e) {
-    if (!svg.contains(e.target)) clearPulses(svg);
-  }
-  document.removeEventListener('click', onDocClick);
-  document.addEventListener('click', onDocClick);
+  // We intentionally do not add pointerdown/pointerup handlers that call highlightOutgoing.
+  // Panning/zooming remains handled by setupGraphZoom; this function only ensures nodes are keyboard-focusable.
 }
 
 /* ===============================
