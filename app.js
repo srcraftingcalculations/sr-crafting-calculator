@@ -903,7 +903,7 @@ function renderGraph(nodes, links, rootItem) {
 
     for (const n of colNodes) {
       if (n.raw && n.depth === minDepth) continue;
-      if ((n.hasOutputAnchor || (n.id === BBM_ID || n.label === BBM_ID)) && n.depth !== maxDepth) {
+      if ((n.hasOutputAnchor || n.id === BBM_ID || n.label === BBM_ID) && n.depth !== maxDepth) {
         outputAnchors.push(anchorRightPos(n));
       }
     }
@@ -912,10 +912,43 @@ function renderGraph(nodes, links, rootItem) {
 
     const ysAnch = outputAnchors.map(p => p.y);
     const topAnchorY = Math.min(...ysAnch);
-    const bottomAnchorY = Math.max(...ysAnch);
     const spineX = outputAnchors[0].x;
 
-  // Vertical flow into next column (WITH arrow)
+    // Look ahead to next column
+    if (i + 1 >= depthsSorted.length) continue;
+
+    const nextDepth = depthsSorted[i + 1];
+    const nextColNodes = columns[nextDepth] || [];
+    const nextInputs = [];
+
+    for (const n of nextColNodes) {
+      if (n.raw && n.depth === minDepth) continue;
+      if (n.hasInputAnchor && n.building !== 'Smelter') {
+        nextInputs.push(anchorLeftPos(n));
+      }
+    }
+
+    if (!nextInputs.length) continue;
+
+    const topInY = Math.min(...nextInputs.map(p => p.y));
+    const bottomInY = Math.max(...nextInputs.map(p => p.y));
+    const nextSpineX = nextInputs[0].x;
+
+    // Horizontal flow →
+    spineSvg += `
+      <line
+        class="graph-spine-horizontal"
+        x1="${spineX}"
+        y1="${topAnchorY}"
+        x2="${nextSpineX}"
+        y2="${topAnchorY}"
+        stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
+        stroke-width="2"
+        marker-end="url(#spineArrow)"
+      />
+    `;
+
+    // Vertical drop ↓ (arrow)
     spineSvg += `
       <line
         class="graph-spine-vertical"
@@ -929,65 +962,18 @@ function renderGraph(nodes, links, rootItem) {
       />
     `;
 
-    if (i + 1 < depthsSorted.length) {
-      const nextDepth = depthsSorted[i + 1];
-      const nextColNodes = columns[nextDepth] || [];
-      const nextInputs = [];
-
-      for (const n of nextColNodes) {
-        if (n.raw && n.depth === minDepth) continue;
-        if (n.hasInputAnchor && n.building !== 'Smelter') {
-          nextInputs.push(anchorLeftPos(n));
-        }
-      }
-
-      if (nextInputs.length) {
-        const topInY = Math.min(...nextInputs.map(p => p.y));
-        const bottomInY = Math.max(...nextInputs.map(p => p.y));
-        const nextSpineX = nextInputs[0].x;
-
-        // Horizontal spine (WITH arrow →)
-        spineSvg += `
-          <line
-            class="graph-spine-horizontal"
-            x1="${spineX}"
-            y1="${topAnchorY}"
-            x2="${nextSpineX}"
-            y2="${topAnchorY}"
-            stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
-            stroke-width="2"
-            marker-end="url(#spineArrow)"
-          />
-        `;
-
-        // Vertical flow drop (WITH arrow ↓)
-        spineSvg += `
-          <line
-            class="graph-spine-vertical"
-            x1="${nextSpineX}"
-            y1="${topAnchorY}"
-            x2="${nextSpineX}"
-            y2="${topInY}"
-            stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
-            stroke-width="2"
-            marker-end="url(#arrow-down)"
-          />
-        `;
-
-        // Vertical grouping spine (NO arrow)
-        spineSvg += `
-          <line
-            class="graph-spine-vertical"
-            x1="${nextSpineX}"
-            y1="${topInY}"
-            x2="${nextSpineX}"
-            y2="${bottomInY}"
-            stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
-            stroke-width="2"
-          />
-        `;
-      }
-    }
+    // Vertical grouping (no arrow)
+    spineSvg += `
+      <line
+        class="graph-spine-vertical"
+        x1="${nextSpineX}"
+        y1="${topInY}"
+        x2="${nextSpineX}"
+        y2="${bottomInY}"
+        stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
+        stroke-width="2"
+      />
+    `;
   }
 
   // Start building inner SVG content
