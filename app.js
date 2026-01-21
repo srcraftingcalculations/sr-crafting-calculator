@@ -360,10 +360,7 @@ function computeDepthsFromTiers(chain, rootItem) {
     }
   }
 
-  // 3) Force BBM into graph column 0 (not 1)
-  if (depths[BBM_ID] !== undefined) depths[BBM_ID] = 0;
-
-  // 4) Heuristic: if an item has inputs and ALL inputs are raw, treat it as depth 0
+  // 3) Heuristic: if an item has inputs and ALL inputs are raw, treat it as depth 0
   //    (covers blocks/bars produced directly from ores)
   for (const [item, data] of Object.entries(chain || {})) {
     const inputs = data.inputs || {};
@@ -379,8 +376,7 @@ function computeDepthsFromTiers(chain, rootItem) {
     }
   }
 
-  // 5) Place Helium-3 and Sulphur one column left of their earliest consumer
-  //    (adjusted to the new depth mapping)
+  // 4) Place Helium-3 and Sulphur one column left of their earliest consumer
   for (const rawName of LEFT_OF_CONSUMER_RAWS) {
     if (!(rawName in chain)) continue;
     let minConsumerDepth = Infinity;
@@ -398,7 +394,36 @@ function computeDepthsFromTiers(chain, rootItem) {
     }
   }
 
-  // 6) Final clamp and integer normalization
+  // 5) Normalize to integers and clamp non-negative before deciding shifts
+  for (const k of Object.keys(depths)) {
+    let v = Number(depths[k]);
+    if (!Number.isFinite(v) || isNaN(v)) v = 0;
+    v = Math.max(0, Math.floor(v));
+    depths[k] = v;
+  }
+
+  // 6) Decide whether to enforce "raws at 0 and everything else shifted right by 1"
+  //    Exception: if NO raw item is at depth 0 (i.e., all raw depths > 0), do nothing.
+  const rawItems = Object.keys(chain || {}).filter(i => chain[i] && chain[i].raw);
+  if (rawItems.length > 0) {
+    const anyRawAtZero = rawItems.some(r => depths[r] === 0);
+    if (anyRawAtZero) {
+      // Force all raw items to depth 0
+      for (const r of rawItems) depths[r] = 0;
+
+      // Shift all non-raw items one column to the right (depth += 1)
+      for (const k of Object.keys(depths)) {
+        if (!(chain[k] && chain[k].raw)) {
+          depths[k] = Math.max(0, Math.floor(depths[k]) + 1);
+        }
+      }
+    } else {
+      // Exception case: all raw items are at depth > 0 on first call — respect computed depths.
+      // No forced shift; keep depths as-is.
+    }
+  }
+
+  // 7) Final clamp and integer normalization (safety)
   for (const k of Object.keys(depths)) {
     let v = Number(depths[k]);
     if (!Number.isFinite(v) || isNaN(v)) v = 0;
