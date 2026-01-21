@@ -334,12 +334,14 @@ function buildGraphData(chain, rootItem) {
 })();
 
 /**
- * renderGraph (center-to-center; left/right anchors only; BBM depth=0; smelter input suppressed)
+ * renderGraph (center-to-center; left/right anchors only; BBM in smelter column;
+ * smelter input suppressed; raw nodes off far-left get right-only anchors)
  *
  * - Uses only left/right anchors (no top anchors)
- * - BBM (Basic Building Material) is forced into depth 0
- * - Smelters do not render input anchors or input-side spines (they connect raw -> node directly)
- * - Vertical spine lines for outputs are drawn per-column (using output anchor centers)
+ * - BBM is placed in the smelter column (or fallback smelter outputs)
+ * - Smelters do not render input anchors or input-side spines
+ * - If a node is raw and not in the far-left column (minDepth), it gets RIGHT-only anchor
+ * - Vertical output spines are drawn per-column
  * - All bypass connectors are center-to-center and use identical rounded coordinates
  * - Connectors drawn before anchor groups; stroke-linecap="butt" to avoid cap artifacts
  *
@@ -362,7 +364,7 @@ function renderGraph(nodes, links, rootItem) {
   function anchorRightPos(node) { return { x: roundCoord(node.x + nodeRadius + ANCHOR_OFFSET), y: roundCoord(node.y) }; }
   function anchorLeftPos(node)  { return { x: roundCoord(node.x - nodeRadius - ANCHOR_OFFSET), y: roundCoord(node.y) }; }
 
-  // ensure anchor flags exist
+  // ensure anchor flags exist and default depth
   for (const n of nodes) {
     if (typeof n.hasInputAnchor === 'undefined') n.hasInputAnchor = true;
     if (typeof n.hasOutputAnchor === 'undefined') n.hasOutputAnchor = true;
@@ -419,21 +421,24 @@ function renderGraph(nodes, links, rootItem) {
   const minDepth = nodes.length ? Math.min(...nodes.map(n => n.depth)) : 0;
   const maxDepth = nodes.length ? Math.max(...nodes.map(n => n.depth)) : 0;
 
-  // Determine which anchors will render (left/right only). Smelters suppress input anchors.
+  // Determine which anchors will render (left/right only).
+  // New rule: if node.raw && node.depth !== minDepth => only render RIGHT anchor (suppress left)
   const willRenderAnchors = [];
   for (const node of nodes) {
     const hideAllAnchors = (node.raw && node.depth === minDepth);
     const isSmelter = (node.building === 'Smelter');
     const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
 
-    if (!hideAllAnchors && node.hasInputAnchor && !isSmelter) {
+    // If this is a raw node but not in the far-left column, force "right-only"
+    const rawRightOnly = !!(node.raw && node.depth !== minDepth);
+
+    // Left anchor: skip for rawRightOnly, smelters, BBM, or hideAllAnchors
+    if (!hideAllAnchors && !rawRightOnly && node.hasInputAnchor && !isSmelter && !isBBM) {
       willRenderAnchors.push({ side: 'left', node, pos: anchorLeftPos(node) });
     }
-    if (!hideAllAnchors && (node.hasOutputAnchor || isBBm) && node.depth !== maxDepth) {
-      willRenderAnchors.push({ side: 'right', node, pos: anchorRightPos(node) });
-    }
-    // ensure BBM outputs still render
-    if (!hideAllAnchors && isBBM && node.depth !== maxDepth) {
+
+    // Right anchor: render for outputs and for rawRightOnly nodes (so raw nodes off the left column still get a right helper)
+    if (!hideAllAnchors && (node.hasOutputAnchor || rawRightOnly || isBBM) && node.depth !== maxDepth) {
       willRenderAnchors.push({ side: 'right', node, pos: anchorRightPos(node) });
     }
   }
@@ -515,6 +520,7 @@ function renderGraph(nodes, links, rootItem) {
   // expose for debugging if desired
   window._needsOutputBypass = needsOutputBypass;
   window._needsInputBypass = needsInputBypass;
+  window._graphNodes = nodes;
 
   // --- Build spines: vertical output spines per column and horizontal connectors to next column inputs ---
   let spineSvg = '';
@@ -633,8 +639,10 @@ function renderGraph(nodes, links, rootItem) {
     const isSmelter = (node.building === 'Smelter');
     const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
 
-    const showLeftAnchor = !hideAllAnchors && node.hasInputAnchor && !isSmelter && !isBBM;
-    const showRightAnchor = !hideAllAnchors && (node.hasOutputAnchor || isBBM) && (node.depth !== maxDepth);
+    // Apply the same rawRightOnly rule here so DOM matches willRenderAnchors
+    const rawRightOnly = !!(node.raw && node.depth !== minDepth);
+    const showLeftAnchor = !hideAllAnchors && !rawRightOnly && node.hasInputAnchor && !isSmelter && !isBBM;
+    const showRightAnchor = !hideAllAnchors && (node.hasOutputAnchor || rawRightOnly || isBBM) && (node.depth !== maxDepth);
 
     // Node markup
     inner += `
