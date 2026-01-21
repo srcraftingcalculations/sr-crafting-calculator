@@ -5,6 +5,7 @@
 // - Prevents the black focus box by inline styles and pointer-events on children
 // - Drag threshold prevents accidental activation while panning
 // - Left->right layout retained
+// - Standardized graph line styles via CSS variables and consistent attributes
 // ===============================
 
 /* ===============================
@@ -441,12 +442,14 @@ function buildGraphData(chain, rootItem) {
 /* ===============================
    Inject minimal pulse CSS via JS (optional)
    - keeps animations available; you can remove if you prefer no CSS
+   - also standardizes line styles for the graph
    =============================== */
 (function injectPulseStylesIfMissing() {
   if (document.getElementById('graphPulseStyles')) return;
   const style = document.createElement('style');
   style.id = 'graphPulseStyles';
   style.textContent = `
+    /* Pulse animations */
     @keyframes nodePulse {
       0% { stroke-width: 2; filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
       50% { stroke-width: 6; filter: drop-shadow(0 0 10px rgba(255,200,50,0.9)); }
@@ -464,6 +467,13 @@ function buildGraphData(chain, rootItem) {
       circle.pulse-origin, circle.pulse-node { animation: none !important; stroke-width: 4 !important; stroke: #ffd27a !important; }
       line.pulse-edge { animation: none !important; stroke-width: 3 !important; stroke-opacity: 1 !important; }
     }
+
+    /* Standardized line styles */
+    .graphSVG line { stroke-linecap: round; stroke-opacity: 0.95; }
+    .graph-edge, .node-to-anchor, .bypass-connector { stroke: var(--line-color); stroke-width: 1.6; stroke-linecap: round; stroke-opacity: 0.95; }
+    .graph-spine-vertical, .graph-spine-horizontal { stroke: var(--spine-color); stroke-width: 2; stroke-linecap: round; stroke-opacity: 0.95; }
+    .graph-edge-raw { stroke: var(--raw-edge-color); stroke-width: 2.6; stroke-linecap: round; stroke-opacity: 1; }
+    .bypass-to-spine, .bypass-input-connector, .bypass-output-connector { stroke: var(--line-color); stroke-width: 1.4; stroke-linecap: butt; stroke-opacity: 0.95; }
   `;
   document.head.appendChild(style);
 })();
@@ -471,8 +481,7 @@ function buildGraphData(chain, rootItem) {
 /* ===============================
    renderGraph (full)
    - Uses CSS variables for colors and label box
-   - Connects visible helper dots to their node via short lines
-   - Implements rule: any raw material listed in any column except far-left gets right helper only
+   - Connectors now use standardized stroke attributes via CSS variables
    =============================== */
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
@@ -618,7 +627,7 @@ function renderGraph(nodes, links, rootItem) {
       const topAnchorY = Math.min(...ysAnch);
       const bottomAnchorY = Math.max(...ysAnch);
       const spineX = outputAnchors[0].x;
-      spineSvg += `<line class="graph-spine-vertical" x1="${spineX}" y1="${bottomAnchorY}" x2="${spineX}" y2="${topAnchorY}" stroke="var(--spine-color)" stroke-width="2" stroke-linecap="round" opacity="0.95" />`;
+      spineSvg += `<line class="graph-spine-vertical" x1="${spineX}" y1="${bottomAnchorY}" x2="${spineX}" y2="${topAnchorY}" />`;
       if (i+1 < depthsSorted.length) {
         const nextDepth = depthsSorted[i+1];
         const nextColNodes = columns[nextDepth] || [];
@@ -630,9 +639,9 @@ function renderGraph(nodes, links, rootItem) {
         if (nextInputs.length) {
           const topInY = Math.min(...nextInputs.map(p=>p.y));
           const nextSpineX = nextInputs[0].x;
-          spineSvg += `<line class="graph-spine-horizontal" x1="${spineX}" y1="${topAnchorY}" x2="${nextSpineX}" y2="${topAnchorY}" stroke="var(--spine-color)" stroke-width="2" stroke-linecap="round" opacity="0.95" />`;
-          spineSvg += `<line class="graph-spine-horizontal" x1="${nextSpineX}" y1="${topAnchorY}" x2="${nextSpineX}" y2="${topInY}" stroke="var(--spine-color)" stroke-width="2" stroke-linecap="round" opacity="0.95" />`;
-          spineSvg += `<line class="graph-spine-vertical" x1="${nextSpineX}" y1="${topInY}" x2="${nextSpineX}" y2="${Math.max(...nextInputs.map(p=>p.y))}" stroke="var(--spine-color)" stroke-width="2" stroke-linecap="round" opacity="0.95" />`;
+          spineSvg += `<line class="graph-spine-horizontal" x1="${spineX}" y1="${topAnchorY}" x2="${nextSpineX}" y2="${topAnchorY}" />`;
+          spineSvg += `<line class="graph-spine-horizontal" x1="${nextSpineX}" y1="${topAnchorY}" x2="${nextSpineX}" y2="${topInY}" />`;
+          spineSvg += `<line class="graph-spine-vertical" x1="${nextSpineX}" y1="${topInY}" x2="${nextSpineX}" y2="${Math.max(...nextInputs.map(p=>p.y))}" />`;
         }
       }
     }
@@ -649,29 +658,29 @@ function renderGraph(nodes, links, rootItem) {
     ${spineSvg}
   `;
 
-  // raw->smelter edges
+  // raw->smelter edges (use class graph-edge-raw)
   for (const link of links) {
     const rawSource = nodeById.get(link.to);
     const consumer = nodeById.get(link.from);
     if (!rawSource || !consumer) continue;
     const consumerIsBBM = (consumer.id === BBM_ID || consumer.label === BBM_ID);
     if (rawSource.raw && rawSource.depth === minDepth && (consumer.building === 'Smelter' || consumerIsBBM)) {
-      inner += `<line class="graph-edge graph-edge-raw" data-from="${escapeHtml(rawSource.id)}" data-to="${escapeHtml(consumer.id)}" x1="${rawSource.x}" y1="${rawSource.y}" x2="${consumer.x}" y2="${consumer.y}" stroke="var(--raw-edge-color)" stroke-width="2.6" stroke-linecap="round" />`;
+      inner += `<line class="graph-edge graph-edge-raw" data-from="${escapeHtml(rawSource.id)}" data-to="${escapeHtml(consumer.id)}" x1="${rawSource.x}" y1="${rawSource.y}" x2="${consumer.x}" y2="${consumer.y}" />`;
     }
   }
 
   // bypass connectors
   for (const [depth, info] of needsOutputBypass.entries()) {
-    inner += `<line class="bypass-to-spine bypass-output-connector" data-depth="${depth}" x1="${info.x}" y1="${info.y}" x2="${info.x}" y2="${info.helperCenter.y}" stroke="var(--line-color)" stroke-width="1.4" stroke-linecap="butt" opacity="0.95" />`;
+    inner += `<line class="bypass-to-spine bypass-output-connector" data-depth="${depth}" x1="${info.x}" y1="${info.y}" x2="${info.x}" y2="${info.helperCenter.y}" />`;
   }
   for (const [consumerDepth, pos] of needsInputBypass.entries()) {
-    inner += `<line class="bypass-to-spine bypass-input-connector" data-depth="${consumerDepth}" x1="${pos.x}" y1="${pos.helperCenter.y}" x2="${pos.x}" y2="${pos.y}" stroke="var(--line-color)" stroke-width="1.4" stroke-linecap="butt" opacity="0.95" />`;
+    inner += `<line class="bypass-to-spine bypass-input-connector" data-depth="${consumerDepth}" x1="${pos.x}" y1="${pos.helperCenter.y}" x2="${pos.x}" y2="${pos.y}" />`;
   }
   for (const [outDepth, outInfo] of needsOutputBypass.entries()) {
     for (const consumerDepth of outInfo.causingConsumers) {
       const inPos = needsInputBypass.get(consumerDepth);
       if (!inPos) continue;
-      inner += `<line class="bypass-connector" data-from-depth="${outDepth}" data-to-depth="${consumerDepth}" x1="${outInfo.x}" y1="${outInfo.y}" x2="${inPos.x}" y2="${inPos.y}" stroke="var(--line-color)" stroke-width="1.6" stroke-linecap="round" opacity="0.95" />`;
+      inner += `<line class="bypass-connector" data-from-depth="${outDepth}" data-to-depth="${consumerDepth}" x1="${outInfo.x}" y1="${outInfo.y}" x2="${inPos.x}" y2="${inPos.y}" />`;
     }
   }
 
@@ -686,11 +695,11 @@ function renderGraph(nodes, links, rootItem) {
 
     if (showLeftAnchor) {
       const a = anchorLeftPos(node);
-      inner += `<line class="node-to-anchor node-to-left" data-node="${escapeHtml(node.id)}" x1="${roundCoord(node.x - nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" stroke="var(--line-color)" stroke-width="1.4" stroke-linecap="butt" opacity="0.95" />`;
+      inner += `<line class="node-to-anchor node-to-left" data-node="${escapeHtml(node.id)}" x1="${roundCoord(node.x - nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" />`;
     }
     if (showRightAnchor) {
       const a = anchorRightPos(node);
-      inner += `<line class="node-to-anchor node-to-right" data-node="${escapeHtml(node.id)}" x1="${roundCoord(node.x + nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" stroke="var(--line-color)" stroke-width="1.4" stroke-linecap="butt" opacity="0.95" />`;
+      inner += `<line class="node-to-anchor node-to-right" data-node="${escapeHtml(node.id)}" x1="${roundCoord(node.x + nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" />`;
     }
   }
 
