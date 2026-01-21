@@ -334,9 +334,11 @@ function buildGraphData(chain, rootItem) {
 })();
 
 /**
- * renderGraph (labels centered in blur box)
+ * renderGraph (improved dark-mode label readability)
  *
- * - Centers label text both horizontally and vertically inside the blurred label box
+ * - Stronger label backdrop and blur/drop-shadow for dark mode
+ * - Higher-contrast text stroke and fill tuned per theme
+ * - Labels centered horizontally and vertically inside the blur box
  * - Left/right anchors only; BBM in smelter column; smelter input suppressed;
  *   raw nodes off far-left get right-only anchors; helper dots connected to nodes
  *
@@ -359,9 +361,14 @@ function renderGraph(nodes, links, rootItem) {
   const RAW_EDGE_COLOR = '#333333';
   const NODE_STROKE = '#2c3e50';
 
-  // Label box fills (semi-opaque to ensure readability)
-  const LABEL_BOX_FILL = isDark ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.88)';
+  // Label box fills (stronger in dark mode)
+  const LABEL_BOX_FILL = isDark ? 'rgba(0,0,0,0.88)' : 'rgba(255,255,255,0.92)';
   const LABEL_BOX_STROKE = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+
+  // Text stroke/fill overrides to ensure legibility
+  const LABEL_TEXT_STROKE = isDark ? '#000000' : '#ffffff';
+  const LABEL_TEXT_STROKE_WIDTH = isDark ? 1.0 : 0.6;
+  const LABEL_TEXT_FILL_FALLBACK = isDark ? '#ffffff' : '#111111';
 
   // rounding helper to avoid sub-pixel mismatches
   function roundCoord(v) { return Math.round(v * 100) / 100; }
@@ -584,12 +591,17 @@ function renderGraph(nodes, links, rootItem) {
   })();
 
   // Build inner SVG: start with spines so they render behind everything
-  // include a small defs block for label blur (applied to the label box)
+  // include a defs block for label blur + drop shadow (stronger for dark mode)
+  const blurStdDev = isDark ? 3.0 : 2.0;
+  const shadowStdDev = isDark ? 2.0 : 1.0;
+  const shadowOpacity = isDark ? 0.45 : 0.18;
+
   let inner = `
     <defs>
-      <filter id="labelBlur" x="-30%" y="-30%" width="160%" height="160%">
-        <feGaussianBlur stdDeviation="2" result="b" />
-        <feComposite in="b" in2="SourceGraphic" operator="over" />
+      <filter id="labelBackdrop" x="-40%" y="-40%" width="180%" height="180%">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="${blurStdDev}" result="blurred" />
+        <feDropShadow dx="0" dy="1" stdDeviation="${shadowStdDev}" flood-color="#000" flood-opacity="${shadowOpacity}" />
+        <feComposite in="blurred" in2="SourceGraphic" operator="over" />
       </filter>
     </defs>
     ${spineSvg}
@@ -612,7 +624,6 @@ function renderGraph(nodes, links, rootItem) {
   }
 
   // --- Draw vertical connectors CENTER-TO-CENTER (draw BEFORE dots so dots sit on top) ---
-  // Output connectors: from bypass center to RIGHT helper center
   for (const [depth, info] of needsOutputBypass.entries()) {
     inner += `
       <line class="bypass-to-spine bypass-output-connector" data-depth="${depth}"
@@ -621,7 +632,6 @@ function renderGraph(nodes, links, rootItem) {
     `;
   }
 
-  // Input connectors: from LEFT helper center down to input bypass center
   for (const [consumerDepth, pos] of needsInputBypass.entries()) {
     inner += `
       <line class="bypass-to-spine bypass-input-connector" data-depth="${consumerDepth}"
@@ -653,7 +663,6 @@ function renderGraph(nodes, links, rootItem) {
     const showLeftAnchor = !hideAllAnchors && !rawRightOnly && node.hasInputAnchor && !isSmelter && !isBBM;
     const showRightAnchor = !hideAllAnchors && (node.hasOutputAnchor || rawRightOnly || isBBM) && (node.depth !== maxDepth);
 
-    // left connector: from node left edge to left anchor center
     if (showLeftAnchor) {
       const a = anchorLeftPos(node);
       inner += `
@@ -664,7 +673,6 @@ function renderGraph(nodes, links, rootItem) {
       `;
     }
 
-    // right connector: from node right edge to right anchor center
     if (showRightAnchor) {
       const a = anchorRightPos(node);
       inner += `
@@ -680,25 +688,24 @@ function renderGraph(nodes, links, rootItem) {
   for (const node of nodes) {
     const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
     const strokeColor = NODE_STROKE;
-    const textColor = getTextColor(fillColor);
+    const textColor = getTextColor(fillColor) || LABEL_TEXT_FILL_FALLBACK;
     const labelText = String(node.label || node.id).trim();
     const labelFontSize = 13;
-    const labelPaddingX = 8;
-    const labelPaddingY = 6;
+    const labelPaddingX = 10; // wider padding for better contrast
+    const labelPaddingY = 8;
 
     const hideAllAnchors = (node.raw && node.depth === minDepth);
     const isSmelter = (node.building === 'Smelter');
     const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
 
-    // Apply the same rawRightOnly rule here so DOM matches willRenderAnchors
     const rawRightOnly = !!(node.raw && node.depth !== minDepth);
     const showLeftAnchor = !hideAllAnchors && !rawRightOnly && node.hasInputAnchor && !isSmelter && !isBBM;
     const showRightAnchor = !hideAllAnchors && (node.hasOutputAnchor || rawRightOnly || isBBM) && (node.depth !== maxDepth);
 
     // Label background box sizing (approximate; keeps text readable)
     const approxCharWidth = 7; // px per character (approx for font-size 13)
-    const labelBoxWidth = Math.max(40, Math.ceil(labelText.length * approxCharWidth) + labelPaddingX * 2);
-    const labelBoxHeight = labelFontSize + labelPaddingY;
+    const labelBoxWidth = Math.max(48, Math.ceil(labelText.length * approxCharWidth) + labelPaddingX * 2);
+    const labelBoxHeight = labelFontSize + labelPaddingY * 2;
     const labelBoxX = roundCoord(node.x - labelBoxWidth / 2);
     const labelBoxY = roundCoord((node.y - GRAPH_LABEL_OFFSET) - labelBoxHeight / 2);
     const labelCenterY = roundCoord(labelBoxY + labelBoxHeight / 2);
@@ -706,12 +713,12 @@ function renderGraph(nodes, links, rootItem) {
     // Node markup
     inner += `
       <g class="graph-node" data-id="${escapeHtml(node.id)}" tabindex="0" role="button" aria-label="${escapeHtml(node.label)}" style="outline:none;">
-        <!-- label background box with subtle blur to improve readability; centered under text -->
+        <!-- label background box with stronger blur/drop-shadow in dark mode; centered under text -->
         <rect class="label-box" x="${labelBoxX}" y="${labelBoxY}" width="${labelBoxWidth}" height="${labelBoxHeight}"
-              rx="6" ry="6" fill="${LABEL_BOX_FILL}" stroke="${LABEL_BOX_STROKE}" stroke-width="0.6" filter="url(#labelBlur)" pointer-events="none" />
+              rx="6" ry="6" fill="${LABEL_BOX_FILL}" stroke="${LABEL_BOX_STROKE}" stroke-width="0.8" filter="url(#labelBackdrop)" pointer-events="none" />
         <text class="nodeLabel" x="${node.x}" y="${labelCenterY}"
               text-anchor="middle" dominant-baseline="middle" font-size="${labelFontSize}" font-weight="700"
-              fill="${textColor}" stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke" pointer-events="none">
+              fill="${textColor}" stroke="${LABEL_TEXT_STROKE}" stroke-width="${LABEL_TEXT_STROKE_WIDTH}" paint-order="stroke" pointer-events="none">
           ${escapeHtml(labelText)}
         </text>
 
