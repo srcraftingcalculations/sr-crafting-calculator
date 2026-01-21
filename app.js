@@ -1066,45 +1066,41 @@ function renderGraph(nodes, links, rootItem) {
   }
 
   // ---------------------------------
-  // Bypass detection (LOGICAL, DOTS ONLY)
+  // BYPASS HELPER DOTS (TRUE HELPERS)
   // ---------------------------------
-  const bypassOutputDepths = new Set();
-  const bypassInputDepths = new Set();
 
-  // build adjacency list
-  const consumes = new Map();
-  for (const link of links) {
-    if (!consumes.has(link.source)) consumes.set(link.source, []);
-    consumes.get(link.source).push(link.target);
+  // Output-side bypass helper dots
+  for (const depth of bypassOutputDepths) {
+    const h = rightTopByDepth[depth];
+    if (!h) continue;
+
+    inner += `
+      <circle
+        cx="${h.x}"
+        cy="${h.y - BYPASS_Y_OFFSET}"
+        r="${BYPASS_RADIUS}"
+        fill="var(--bypass-fill)"
+        stroke="var(--bypass-stroke)"
+        stroke-width="1.4"
+      />
+    `;
   }
 
-  // DFS to find deepest reachable consumer
-  function findMaxDepth(startId, visited = new Set()) {
-    if (visited.has(startId)) return -Infinity;
-    visited.add(startId);
+  // Input-side bypass helper dots
+  for (const depth of bypassInputDepths) {
+    const h = leftTopByDepth[depth];
+    if (!h) continue;
 
-    const node = nodes.find(n => n.id === startId);
-    if (!node) return -Infinity;
-
-    let maxDepth = node.depth;
-    const next = consumes.get(startId) || [];
-
-    for (const id of next) {
-      maxDepth = Math.max(maxDepth, findMaxDepth(id, visited));
-    }
-
-    return maxDepth;
-  }
-
-  // detect logical bypasses
-  for (const node of nodes) {
-    if (!node.hasOutputAnchor) continue;
-
-    const maxDepth = findMaxDepth(node.id);
-    if (maxDepth > node.depth + 1) {
-      bypassOutputDepths.add(node.depth);
-      bypassInputDepths.add(maxDepth);
-    }
+    inner += `
+      <circle
+        cx="${h.x}"
+        cy="${h.y - BYPASS_Y_OFFSET}"
+        r="${BYPASS_RADIUS}"
+        fill="var(--bypass-fill)"
+        stroke="var(--bypass-stroke)"
+        stroke-width="1.4"
+      />
+    `;
   }
 
   // ---------------------------------
