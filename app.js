@@ -860,6 +860,32 @@ function renderGraph(nodes, links, rootItem) {
   }
   shortestGap = roundCoord(shortestGap);
 
+  // Helper: return an SVG group string that draws a filled triangle arrow
+  // centered at the midpoint of (x1,y1)-(x2,y2) and rotated to the line angle.
+  // color: fill color; size: half-width of the arrow in px (default 6).
+  function arrowAtMidpoint(x1, y1, x2, y2, color, size = 6) {
+    const mx = roundCoord((x1 + x2) / 2);
+    const my = roundCoord((y1 + y2) / 2);
+    const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+    const h = Math.max(2, Math.round(size * 0.625));
+    const path = `M ${-size} ${-h} L ${size} 0 L ${-size} ${h} Z`;
+    return `<g class="line-arrow" transform="translate(${mx},${my}) rotate(${angle})"><path d="${path}" fill="${color}" /></g>`;
+  }
+
+  // Helper: returns true if the given input node itself has a producer at least
+  // two normalized columns earlier than outDepth.
+  function inputHasEarlierProducer(inputId, outDepth) {
+    const inputNode = nodeById.get(inputId);
+    if (!inputNode) return false;
+    for (const l of links) {
+      if (l.to !== inputId) continue;
+      const producer = nodeById.get(l.from);
+      if (!producer || typeof producer.depth !== 'number') continue;
+      if ((outDepth - producer.depth) >= 2) return true;
+    }
+    return false;
+  }
+
   const needsOutputBypass = new Map();
   for (const depth of depthsSorted) {
     const colNodes = columns[depth] || [];
@@ -871,7 +897,20 @@ function renderGraph(nodes, links, rootItem) {
         if (link.to !== outNode.id) continue;
         const consumer = nodeById.get(link.from);
         if (!consumer || typeof consumer.depth !== 'number') continue;
-        if ((consumer.depth - outNode.depth) > 1) consumerDepths.add(consumer.depth);
+
+        const depthDiff = consumer.depth - outNode.depth;
+
+        // New rule:
+        // - If consumer is more than one column away -> bypass needed
+        // - If consumer is exactly one column away, only allow bypass if the input
+        //   itself is produced by a node at least two columns earlier than outNode
+        if (depthDiff > 1) {
+          consumerDepths.add(consumer.depth);
+        } else if (depthDiff === 1) {
+          if (inputHasEarlierProducer(link.to, outNode.depth)) {
+            consumerDepths.add(consumer.depth);
+          }
+        }
       }
     }
     if (!consumerDepths.size) continue;
@@ -945,16 +984,6 @@ function renderGraph(nodes, links, rootItem) {
         <feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#000" flood-opacity="0.25" />
         <feComposite in="blurred" in2="SourceGraphic" operator="over" />
       </filter>
-
-      <!-- Arrow marker (normal) -->
-      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="6" orient="auto" markerUnits="strokeWidth">
-        <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
-      </marker>
-
-      <!-- Arrow marker (small) for short helper lines -->
-      <marker id="arrow-small" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="5" orient="auto" markerUnits="strokeWidth">
-        <path d="M 0 0 L 8 4 L 0 8 z" fill="currentColor" />
-      </marker>
     </defs>
     ${spineSvg}
   `;
@@ -994,8 +1023,9 @@ function renderGraph(nodes, links, rootItem) {
       const stroke = isRawDirect ? rawLineColor : lineColor;
       const width = isRawDirect ? 2.6 : 1.6;
 
-      // Use arrow marker; color property controls marker fill via currentColor
-      inner += `<line class="graph-edge direct-node-line" data-from="${escapeHtml(src.id)}" data-to="${escapeHtml(dst.id)}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" style="color:${stroke}" marker-end="url(#arrow)" />`;
+      inner += `<line class="graph-edge direct-node-line" data-from="${escapeHtml(src.id)}" data-to="${escapeHtml(dst.id)}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" />`;
+      // Arrow in the middle for direct flows
+      inner += arrowAtMidpoint(x1, y1, x2, y2, stroke, 7);
     }
   })();
 
@@ -1010,7 +1040,8 @@ function renderGraph(nodes, links, rootItem) {
     if (! (node.raw && node.depth === minDepth) && (node.hasOutputAnchor || rawRightOnly || isBBM) && node.depth !== maxDepth) {
       const a = anchorRightPos(node);
       helperMap.set(`${node.id}:right`, a);
-      inner += `<line class="node-to-helper" data-node="${escapeHtml(node.id)}" data-side="right" x1="${roundCoord(node.x + nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" stroke="${defaultLineColor}" stroke-width="1.2" style="color:${defaultLineColor}" marker-end="url(#arrow-small)" />`;
+      // helper lines: no midpoint arrows (short helpers)
+      inner += `<line class="node-to-helper" data-node="${escapeHtml(node.id)}" data-side="right" x1="${roundCoord(node.x + nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" stroke="${defaultLineColor}" stroke-width="1.2" />`;
       inner += `<g class="helper-dot helper-output" data-node="${escapeHtml(node.id)}" data-side="right" transform="translate(${a.x},${a.y})" aria-hidden="true"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
       inner += `<g class="anchor anchor-right" data-node="${escapeHtml(node.id)}" data-side="right" transform="translate(${a.x},${a.y})" tabindex="0" role="button" aria-label="Output anchor for ${escapeHtml(node.label)}"><circle class="anchor-hit" cx="0" cy="0" r="${ANCHOR_HIT_RADIUS}" fill="transparent" pointer-events="all" /><circle class="anchor-dot" cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--anchor-dot-fill)" stroke="var(--anchor-dot-stroke)" stroke-width="1.2" /></g>`;
     }
@@ -1018,7 +1049,8 @@ function renderGraph(nodes, links, rootItem) {
     if (node.hasInputAnchor && !isSmelter && !isBBM && !node.raw) {
       const a = anchorLeftPos(node);
       helperMap.set(`${node.id}:left`, a);
-      inner += `<line class="node-to-helper" data-node="${escapeHtml(node.id)}" data-side="left" x1="${roundCoord(node.x - nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" stroke="${defaultLineColor}" stroke-width="1.2" style="color:${defaultLineColor}" marker-end="url(#arrow-small)" />`;
+      // helper lines: no midpoint arrows (short helpers)
+      inner += `<line class="node-to-helper" data-node="${escapeHtml(node.id)}" data-side="left" x1="${roundCoord(node.x - nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" stroke="${defaultLineColor}" stroke-width="1.2" />`;
       inner += `<g class="helper-dot helper-input" data-node="${escapeHtml(node.id)}" data-side="left" transform="translate(${a.x},${a.y})" aria-hidden="true"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
       inner += `<g class="anchor anchor-left" data-node="${escapeHtml(node.id)}" data-side="left" transform="translate(${a.x},${a.y})" tabindex="0" role="button" aria-label="Input anchor for ${escapeHtml(node.label)}"><circle class="anchor-hit" cx="0" cy="0" r="${ANCHOR_HIT_RADIUS}" fill="transparent" pointer-events="all" /><circle class="anchor-dot" cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--anchor-dot-fill)" stroke="var(--anchor-dot-stroke)" stroke-width="1.2" /></g>`;
     }
@@ -1026,16 +1058,18 @@ function renderGraph(nodes, links, rootItem) {
 
   // Bypass connectors to/from spines
   for (const [depth, info] of needsOutputBypass.entries()) {
-  inner += `<line class="bypass-to-spine bypass-output-connector" data-depth="${depth}" x1="${info.x}" y1="${info.y}" x2="${info.x}" y2="${info.helperCenter.y}" stroke="${defaultLineColor}" stroke-width="1.4" style="color:${defaultLineColor}" marker-end="url(#arrow-small)" />`;
+    inner += `<line class="bypass-to-spine bypass-output-connector" data-depth="${depth}" x1="${info.x}" y1="${info.y}" x2="${info.x}" y2="${info.helperCenter.y}" stroke="${defaultLineColor}" stroke-width="1.4" />`;
   }
   for (const [consumerDepth, pos] of needsInputBypass.entries()) {
-    inner += `<line class="bypass-to-spine bypass-input-connector" data-depth="${consumerDepth}" x1="${pos.x}" y1="${pos.helperCenter.y}" x2="${pos.x}" y2="${pos.y}" stroke="${defaultLineColor}" stroke-width="1.4" style="color:${defaultLineColor}" marker-end="url(#arrow-small)" />`;
+    inner += `<line class="bypass-to-spine bypass-input-connector" data-depth="${consumerDepth}" x1="${pos.x}" y1="${pos.helperCenter.y}" x2="${pos.x}" y2="${pos.y}" stroke="${defaultLineColor}" stroke-width="1.4" />`;
   }
   for (const [outDepth, outInfo] of needsOutputBypass.entries()) {
     for (const consumerDepth of outInfo.causingConsumers) {
       const inPos = needsInputBypass.get(consumerDepth);
       if (!inPos) continue;
-      inner += `<line class="bypass-connector" data-from-depth="${outDepth}" data-to-depth="${consumerDepth}" x1="${outInfo.x}" y1="${outInfo.y}" x2="${inPos.x}" y2="${inPos.y}" stroke="${defaultLineColor}" stroke-width="1.4" style="color:${defaultLineColor}" marker-end="url(#arrow)" />`;
+      inner += `<line class="bypass-connector" data-from-depth="${outDepth}" data-to-depth="${consumerDepth}" x1="${outInfo.x}" y1="${outInfo.y}" x2="${inPos.x}" y2="${inPos.y}" stroke="${defaultLineColor}" stroke-width="1.4" />`;
+      // Arrow in the middle for bypass diagonal flows
+      inner += arrowAtMidpoint(outInfo.x, outInfo.y, inPos.x, inPos.y, defaultLineColor, 6);
     }
   }
 
