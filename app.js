@@ -496,21 +496,10 @@ function renderGraph(nodes, links, rootItem) {
     if (!columns[node.depth]) columns[node.depth] = [];
     columns[node.depth].push(node);
   }
-  // Normalize populated depths so columns are evenly spaced (no huge left gap)
-  const _populatedDepths = Object.keys(columns).map(Number).filter(d => Number.isFinite(d));
-  const _minPopDepth = _populatedDepths.length ? Math.min(..._populatedDepths) : 0;
-
-  // Layout columns by the sorted order of populated depths (guaranteed consecutive columns)
-  const _depthsOrdered = Object.keys(columns).map(Number).sort((a,b)=>a-b);
-  const _depthIndex = new Map(_depthsOrdered.map((d,i)=>[d,i]));
-
   for (const [depth, colNodes] of Object.entries(columns)) {
-    colNodes.sort((a,b) =>
-      String(a.label || a.id).localeCompare(String(b.label || b.id), undefined, { sensitivity: 'base' })
-    );
-    const idx = _depthIndex.get(Number(depth)) ?? 0;
-    colNodes.forEach((node, i) => {
-      node.x = roundCoord(idx * MACHINE_COL_WIDTH + 100);
+    colNodes.sort((a,b) => (String(a.label||a.id)).localeCompare(String(b.label||b.id), undefined, {sensitivity:'base'}));
+    colNodes.forEach((node,i) => {
+      node.x = roundCoord(Number(depth) * MACHINE_COL_WIDTH + 100);
       node.y = roundCoord(i * GRAPH_ROW_HEIGHT + 100);
     });
   }
@@ -972,33 +961,121 @@ function ensureResetButton() {
   return btn;
 }
 
-  // Prevent double-install
-  if (containerEl._graphZoomInstalled) return;
-  containerEl._graphZoomInstalled = true;
+function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = {}) {
+  if (!containerEl) return;
 
-  // Named handlers so we can remove them later
-  function onWheel(ev) {
+  const svg = containerEl.querySelector('svg.graphSVG');
+  const zoomLayer = svg.querySelector('#zoomLayer');
+  const resetBtn = resetButtonEl || document.querySelector('#resetViewBtn');
+
+  let scale = 1;
+  let tx = 0;
+  let ty = 0;
+  let isPanning = false;
+  let startX = 0;
+  let startY = 0;
+  let activePointerId = null;
+
+  function getContentBBox() {
+    const vb = svg.viewBox.baseVal;
+    if (vb && vb.width && vb.height) return { x: vb.x, y: vb.y, width: vb.width, height: vb.height };
+    try { return zoomLayer.getBBox(); } catch (e) { return { x: 0, y: 0, width: svg.clientWidth, height: svg.clientHeight }; }
+  }
+
+  function getViewSizeInSvgCoords() {
+    const rect = svg.getBoundingClientRect();
+    const ptTL = svg.createSVGPoint(); ptTL.x = 0; ptTL.y = 0;
+    const ptBR = svg.createSVGPoint(); ptBR.x = rect.width; ptBR.y = rect.height;
+    const svgTL = ptTL.matrixTransform(svg.getScreenCTM().inverse());
+    const svgBR = ptBR.matrixTransform(svg.getScreenCTM().inverse());
+    return { width: svgBR.x - svgTL.x, height: svgBR.y - svgTL.y };
+  }
+
+  function clampTranslation(proposedTx, proposedTy, proposedScale) {
+    const bbox = getContentBBox();
+    const view = getViewSizeInSvgCoords();
+    const layerW = bbox.width * proposedScale;
+    const layerH = bbox.height * proposedScale;
+
+    const minTxLarge = view.width - layerW - bbox.x * proposedScale;
+    const maxTxLarge = -bbox.x * proposedScale;
+    const minTyLarge = view.height - layerH - bbox.y * proposedScale;
+    const maxTyLarge = -bbox.y * proposedScale;
+
+    const overlapFraction = 0.12;
+    const allowedExtraX = Math.max((view.width - layerW) * (1 - overlapFraction), 0);
+    const allowedExtraY = Math.max((view.height - layerH) * (1 - overlapFraction), 0);
+
+    let clampedTx = proposedTx;
+    let clampedTy = proposedTy;
+
+    if (layerW > view.width) {
+      clampedTx = Math.min(maxTxLarge, Math.max(minTxLarge, proposedTx));
+    } else {
+      const centerTx = (view.width - layerW) / 2 - bbox.x * proposedScale;
+      const minTxSmall = centerTx - allowedExtraX / 2;
+      const maxTxSmall = centerTx + allowedExtraX / 2;
+      clampedTx = Math.min(maxTxSmall, Math.max(minTxSmall, proposedTx));
+    }
+
+    if (layerH > view.height) {
+      clampedTy = Math.min(maxTyLarge, Math.max(minTyLarge, proposedTy));
+    } else {
+      const centerTy = (view.height - layerH) / 2 - bbox.y * proposedScale;
+      const minTySmall = centerTy - allowedExtraY / 2;
+      const maxTySmall = centerTy + allowedExtraY / 2;
+      clampedTy = Math.min(maxTySmall, Math.max(minTySmall, proposedTy));
+    }
+
+    return { tx: clampedTx, ty: clampedTy };
+  }
+
+  function applyTransform() {
+    const clamped = clampTranslation(tx, ty, scale);
+    tx = clamped.tx;
+    ty = clamped.ty;
+    zoomLayer.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+  }
+
+  function zoomAt(newScale, cx, cy) {
+    const pt = svg.createSVGPoint();
+    pt.x = cx; pt.y = cy;
+    const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+    const localX = (svgP.x - tx) / scale;
+    const localY = (svgP.y - ty) / scale;
+
+    const newTx = svgP.x - newScale * localX;
+    const newTy = svgP.y - newScale * localY;
+
+    scale = newScale;
+    tx = newTx;
+    ty = newTy;
+
+    applyTransform();
+  }
+
+  svg.addEventListener('wheel', (ev) => {
     ev.preventDefault();
     const delta = -ev.deltaY;
     const factor = delta > 0 ? 1.08 : 0.92;
     const newScale = Math.min(3, Math.max(0.25, +(scale * factor).toFixed(3)));
     zoomAt(newScale, ev.clientX, ev.clientY);
-  }
+  }, { passive: false });
 
-  function onPointerDown(ev) {
-    if (typeof pointerIsOnNode === 'function' && pointerIsOnNode(ev)) return;
-    if (ev.button !== 0 || !ev.isPrimary) return;
+  svg.addEventListener('pointerdown', (ev) => {
+    if (pointerIsOnNode(ev)) return;
+    if (ev.button !== 0) return;
     isPanning = true;
     activePointerId = ev.pointerId;
     startX = ev.clientX;
     startY = ev.clientY;
     try { svg.setPointerCapture(ev.pointerId); } catch (e) {}
     svg.style.cursor = 'grabbing';
-  }
+  });
 
-  function onPointerMove(ev) {
-    // only respond to the active primary pointer
-    if (!isPanning || ev.pointerId !== activePointerId || !ev.isPrimary) return;
+  window.addEventListener('pointermove', (ev) => {
+    if (!isPanning || ev.pointerId !== activePointerId) return;
     const dxScreen = ev.clientX - startX;
     const dyScreen = ev.clientY - startY;
     startX = ev.clientX;
@@ -1014,36 +1091,64 @@ function ensureResetButton() {
     tx += dxSvg;
     ty += dySvg;
     applyTransform();
-  }
+  });
 
-  function onPointerUp(ev) {
-    if (ev.pointerId !== activePointerId) return;
+  window.addEventListener('pointerup', (ev) => {
+    if (!isPanning || ev.pointerId !== activePointerId) return;
     isPanning = false;
-    try { svg.releasePointerCapture(ev.pointerId); } catch (e) {}
     activePointerId = null;
+    try { svg.releasePointerCapture(ev.pointerId); } catch (e) {}
     svg.style.cursor = 'grab';
+  });
+
+  svg.style.cursor = 'grab';
+
+  function computeAutoFit() {
+    const bbox = getContentBBox();
+    const view = getViewSizeInSvgCoords();
+    if (bbox.width === 0 || bbox.height === 0) {
+      scale = 1; tx = 0; ty = 0; applyTransform(); return;
+    }
+
+    const pad = 0.92;
+    const scaleX = (view.width * pad) / bbox.width;
+    const scaleY = (view.height * pad) / bbox.height;
+    const fitScale = Math.min(scaleX, scaleY);
+
+    scale = Math.min(3, Math.max(0.25, fitScale));
+
+    const layerW = bbox.width * scale;
+    const layerH = bbox.height * scale;
+    tx = (view.width - layerW) / 2 - bbox.x * scale;
+    ty = (view.height - layerH) / 2 - bbox.y * scale;
+
+    applyTransform();
   }
 
-  // Attach listeners and keep references for teardown
-  svg.addEventListener('wheel', onWheel, { passive: false });
-  svg.addEventListener('pointerdown', onPointerDown);
-  window.addEventListener('pointermove', onPointerMove);
-  window.addEventListener('pointerup', onPointerUp);
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      computeAutoFit();
+      showToast("View reset");
+    });
+  }
 
-  containerEl._graphZoomHandles = { onWheel, onPointerDown, onPointerMove, onPointerUp };
+  if (autoFit) requestAnimationFrame(() => computeAutoFit());
+  else applyTransform();
 
-  // Proper teardown that removes listeners and clears install flag
-  containerEl._teardownGraphZoom = () => {
-    try {
-      svg.removeEventListener('wheel', onWheel, { passive: false });
-      svg.removeEventListener('pointerdown', onPointerDown);
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
-    } catch (e) { /* ignore */ }
-    containerEl._graphZoomInstalled = false;
-    containerEl._graphZoomHandles = null;
-    containerEl._teardownGraphZoom = null;
-  };
+  containerEl._teardownGraphZoom = () => { /* no-op */ };
+
+  function getContentBBox() {
+    try { return zoomLayer.getBBox(); } catch (e) { return { x: 0, y: 0, width: svg.clientWidth, height: svg.clientHeight }; }
+  }
+  function getViewSizeInSvgCoords() {
+    const rect = svg.getBoundingClientRect();
+    const ptTL = svg.createSVGPoint(); ptTL.x = 0; ptTL.y = 0;
+    const ptBR = svg.createSVGPoint(); ptBR.x = rect.width; ptBR.y = rect.height;
+    const svgTL = ptTL.matrixTransform(svg.getScreenCTM().inverse());
+    const svgBR = ptBR.matrixTransform(svg.getScreenCTM().inverse());
+    return { width: svgBR.x - svgTL.x, height: svgBR.y - svgTL.y };
+  }
+}
 
 /* ===============================
    Render table + graph
@@ -1070,8 +1175,7 @@ function renderTable(chainObj, rootItem, rate) {
   graphArea.innerHTML = graphHTML;
   const wrapper = graphArea.querySelector(".graphWrapper");
   const resetBtn = document.querySelector('#resetViewBtn');
-  // ensure zoom setup runs after paint
-  requestAnimationFrame(() => setupGraphZoom(wrapper, { autoFit: true, resetButtonEl: resetBtn }));
+  setupGraphZoom(wrapper, { autoFit: true, resetButtonEl: resetBtn });
 
   attachNodePointerHandlers(wrapper);
 
