@@ -1335,22 +1335,25 @@ function runCalculator() {
 async function init() {
   setupDarkMode();
   const data = await loadRecipes();
-  RECIPES = data;
-  TIERS = data._tiers || {};
+  RECIPES = data || {};
+  TIERS = data && data._tiers ? data._tiers : {};
   TIERS["Basic Building Material"] = 0;
 
   const itemSelect = document.getElementById('itemSelect');
   const rateInput = document.getElementById("rateInput");
   const railSelect = document.getElementById("railSelect");
 
-  // Ensure the item select shows a proper placeholder and never includes internal keys like "_tiers"
+  // Populate itemSelect with a placeholder and filtered recipe keys (exclude internal keys like _tiers)
   if (itemSelect) {
-    // Build a clean list of recipe keys, excluding internal keys that start with '_'
-    const items = Object.keys(RECIPES)
+    // Preserve any previously selected real item
+    const prev = itemSelect.value;
+
+    // Build items list excluding internal keys that start with '_'
+    const items = Object.keys(RECIPES || {})
       .filter(k => typeof k === 'string' && !k.startsWith('_'))
       .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 
-    // Replace the select contents with a single placeholder option + the real items
+    // Start with a single placeholder option and then append real items
     itemSelect.innerHTML = '<option value="" disabled selected>Select Item Here</option>';
     for (const it of items) {
       const option = document.createElement('option');
@@ -1358,6 +1361,9 @@ async function init() {
       option.textContent = it;
       itemSelect.appendChild(option);
     }
+
+    // Restore previous selection only if it is a real item
+    if (prev && items.includes(prev)) itemSelect.value = prev;
   }
 
   if (railSelect) railSelect.innerHTML = `
@@ -1480,5 +1486,3 @@ async function init() {
     });
   }
 }
-
-init();
