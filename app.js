@@ -1070,12 +1070,38 @@ function computeRailsNeeded(inputRates, railSpeed) {
 
 function renderTable(chainObj, rootItem, rate) {
   const { chain, machineTotals, extractorTotals } = chainObj;
-  const { nodes, links } = buildGraphData(chain, rootItem);
+
+  // Build graph data (nodes + links) and ensure depths are attached
+  const graph = buildGraphData(chain, rootItem);
+  const nodes = graph.nodes || [];
+  const links = graph.links || [];
+
+  // Map nodes by id for quick lookup
+  const nodeById = new Map((nodes || []).map(n => [n.id, n]));
+
+  // Group chain items by computed depth (use computeDepthsFromTiers to be safe)
+  const depths = typeof computeDepthsFromTiers === 'function'
+    ? computeDepthsFromTiers(chain, rootItem)
+    : {};
+
+  // Build tier groups keyed by depth (level)
+  const levelGroups = {};
+  for (const [item, data] of Object.entries(chain || {})) {
+    const depth = Number.isFinite(Number(depths[item])) ? Number(depths[item]) : 0;
+    if (!levelGroups[depth]) levelGroups[depth] = [];
+    levelGroups[depth].push([item, data]);
+  }
+
+  // Sort levels ascending (0,1,2,...)
+  const sortedLevels = Object.keys(levelGroups).map(Number).sort((a,b) => a - b);
+
+  // Build graph HTML area first (so graph renders above/beside table as before)
   const graphHTML = renderGraph(nodes, links, rootItem);
 
   const graphArea = document.getElementById("graphArea");
   if (!graphArea) return;
 
+  // Teardown previous zoom if present
   const prevWrapper = graphArea.querySelector(".graphWrapper");
   if (prevWrapper && prevWrapper._teardownGraphZoom) {
     try { prevWrapper._teardownGraphZoom(); } catch (e) { /* ignore */ }
@@ -1086,13 +1112,11 @@ function renderTable(chainObj, rootItem, rate) {
   const wrapper = graphArea.querySelector(".graphWrapper");
   const resetBtn = document.querySelector('#resetViewBtn');
   setupGraphZoom(wrapper, { autoFit: true, resetButtonEl: resetBtn });
-
   attachNodePointerHandlers(wrapper);
 
-  const railSpeed = parseInt(document.getElementById("railSelect").value) || 0;
-
+  // Build table HTML
   let html = `
-    <h2>Production chain for ${rate} / min of ${rootItem}</h2>
+    <h2>Production chain for ${escapeHtml(String(rate))} / min of ${escapeHtml(rootItem)}</h2>
     <table>
       <thead>
         <tr>
@@ -1101,55 +1125,67 @@ function renderTable(chainObj, rootItem, rate) {
           <th>Output/machine</th>
           <th>Machines</th>
           <th>Machine Type</th>
-          <th>Inputs</th>
+          <th>Inputs (per min)</th>
           <th>Rails Needed</th>
         </tr>
       </thead>
       <tbody>
   `;
 
-  const tierGroups = {};
-  for (const [item, data] of Object.entries(chain)) {
-    const tier = TIERS[item] ?? 0;
-    if (!tierGroups[tier]) tierGroups[tier] = [];
-    tierGroups[tier].push([item, data]);
-  }
+  // For each level, render a header row and the items in that level
+  for (const level of sortedLevels) {
+    const rows = levelGroups[level] || [];
+    if (!rows.length) continue;
 
-  const sortedTiers = Object.keys(tierGroups).map(Number).sort((a, b) => b - a);
+    html += `<tr><td colspan="7"><strong>--- Level ${level} ---</strong></td></tr>`;
 
-  for (const tier of sortedTiers) {
-    html += `<tr><td colspan="7"><strong>--- Level ${tier} ---</strong></td></tr>`;
-    const rows = tierGroups[tier].sort((a, b) => a[0].localeCompare(b[0]));
+    // Sort items alphabetically within the level for stable ordering
+    rows.sort((a,b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }));
+
     for (const [item, data] of rows) {
-      if (data.raw) continue;
+      // Skip raw-only entries from the main table if you prefer (kept here for completeness)
+      // We'll show raw items too so levels are clear.
+      const isRaw = !!data.raw;
       let outputPerMachine = "—";
       let machines = "—";
       let railsNeeded = "—";
       const fillColor = MACHINE_COLORS[data.building] || "#ecf0f1";
       const textColor = getTextColor(fillColor);
-      if (!data.raw) {
+
+      if (!isRaw) {
         const recipe = getRecipe(item);
-        if (recipe) outputPerMachine = Math.ceil((recipe.output * 60) / recipe.time);
-        machines = Math.ceil(data.machines);
-        railsNeeded = computeRailsNeeded(data.inputs, railSpeed);
+        if (recipe && recipe.output && recipe.time) {
+          outputPerMachine = Math.ceil((recipe.output * 60) / recipe.time);
+        }
+        machines = Number.isFinite(Number(data.machines)) ? Math.ceil(data.machines) : "—";
+        const railSpeed = parseInt(document.getElementById("railSelect")?.value || 0);
+        railsNeeded = computeRailsNeeded(data.inputs || {}, railSpeed);
+      } else {
+        // For raw items, machines typically are extractors; show extractor totals if available
+        machines = data.machines ? Math.ceil(data.machines) : "—";
       }
-      const inputs = Object.entries(data.inputs || {}).map(([i, amt]) => `${i}: ${Math.ceil(amt)}/min`).join("<br>");
+
+      // Inputs: list each input as "Name: X/min" sorted by name
+      const inputsList = Object.entries(data.inputs || {})
+        .sort((a,b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }))
+        .map(([iname, amt]) => `${escapeHtml(iname)}: ${Math.ceil(amt)}/min`)
+        .join("<br>") || "—";
+
       html += `
         <tr>
-          <td>${item}</td>
-          <td>${Math.ceil(data.rate)}</td>
+          <td>${escapeHtml(item)}</td>
+          <td>${Math.ceil(data.rate || 0)}</td>
           <td>${outputPerMachine}</td>
           <td>${machines}</td>
-          <td style="background-color:${fillColor}; color:${textColor};">
-            ${data.building}
-          </td>
-          <td>${inputs || "—"}</td>
+          <td style="background-color:${fillColor}; color:${textColor};">${escapeHtml(data.building || "—")}</td>
+          <td>${inputsList}</td>
           <td>${railsNeeded}</td>
         </tr>
       `;
     }
   }
 
+  // Machines required summary (unchanged)
   html += `</tbody></table>`;
 
   html += `
@@ -1157,13 +1193,14 @@ function renderTable(chainObj, rootItem, rate) {
     <table>
       <thead><tr><th>Machine Type</th><th>Count</th></tr></thead>
       <tbody>
-        ${Object.entries(machineTotals).sort((a, b) => b[1] - a[1]).map(([type, count]) => `
-          <tr><td>${type}</td><td>${Math.ceil(count)}</td></tr>
+        ${Object.entries(machineTotals || {}).sort((a, b) => b[1] - a[1]).map(([type, count]) => `
+          <tr><td>${escapeHtml(type)}</td><td>${Math.ceil(count)}</td></tr>
         `).join("")}
       </tbody>
     </table>
   `;
 
+  // Extraction summary (unchanged)
   html += `
     <h3>EXTRACTION REQUIRED</h3>
     <table>
@@ -1173,21 +1210,23 @@ function renderTable(chainObj, rootItem, rate) {
       <tbody>
   `;
 
-  const sortedExtractors = Object.entries(extractorTotals).filter(([_, qty]) => qty > 0).sort((a, b) => b[1] - a[1]);
+  const sortedExtractors = Object.entries(extractorTotals || {}).filter(([_, qty]) => qty > 0).sort((a, b) => b[1] - a[1]);
   for (const [resource, qty] of sortedExtractors) {
     const rounded = Math.ceil(qty);
     if (SPECIAL_EXTRACTORS[resource]) {
       const normal = Math.ceil(rounded / SPECIAL_EXTRACTORS[resource]);
-      html += `<tr><td>${resource}</td><td>—</td><td>${normal}</td><td>—</td><td>${rounded}</td></tr>`;
+      html += `<tr><td>${escapeHtml(resource)}</td><td>—</td><td>${normal}</td><td>—</td><td>${rounded}</td></tr>`;
     } else {
       const impure = Math.ceil(rounded / 60);
       const normal = Math.ceil(rounded / 120);
       const pure = Math.ceil(rounded / 240);
-      html += `<tr><td>${resource}</td><td>${impure}</td><td>${normal}</td><td>${pure}</td><td>${rounded}</td></tr>`;
+      html += `<tr><td>${escapeHtml(resource)}</td><td>${impure}</td><td>${normal}</td><td>${pure}</td><td>${rounded}</td></tr>`;
     }
   }
 
   html += `</tbody></table>`;
+
+  // Inject into output area
   const out = document.getElementById("outputArea");
   if (out) out.innerHTML = html;
 }
