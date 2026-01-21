@@ -821,26 +821,32 @@ function renderGraph(nodes, links, rootItem) {
   const bypassOutputDepths = new Set();
   const bypassInputDepths = new Set();
 
+  // map item → deepest consuming column
+  const maxConsumerDepthByItem = new Map();
+
   for (const link of links) {
     const from = nodes.find(n => n.id === link.source);
     const to   = nodes.find(n => n.id === link.target);
     if (!from || !to) continue;
 
-    if (to.depth - from.depth > 1) {
-      bypassOutputDepths.add(from.depth);
-      bypassInputDepths.add(to.depth);
-    }
+    const item = link.item; // or however item identity is tracked
+    const prev = maxConsumerDepthByItem.get(item) ?? -Infinity;
+    maxConsumerDepthByItem.set(item, Math.max(prev, to.depth));
   }
 
-  const bypassExtraTop =
-    (bypassOutputDepths.size || bypassInputDepths.size)
-      ? BYPASS_Y_OFFSET + BYPASS_RADIUS + 12
-      : 0;
+  // now decide bypasses
+  for (const link of links) {
+    const from = nodes.find(n => n.id === link.source);
+    if (!from) continue;
 
-      console.log(
-        "Bypass outputs:", [...bypassOutputDepths],
-        "Bypass inputs:", [...bypassInputDepths]
-      );
+    const item = link.item;
+    const maxDepth = maxConsumerDepthByItem.get(item);
+
+    if (maxDepth > from.depth + 1) {
+      bypassOutputDepths.add(from.depth);
+      bypassInputDepths.add(maxDepth);
+    }
+  }
 
   // ---------------------------------
   // ViewBox
