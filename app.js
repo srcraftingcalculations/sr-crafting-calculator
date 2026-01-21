@@ -1079,23 +1079,24 @@ function renderTable(chainObj, rootItem, rate) {
   // Map nodes by id for quick lookup
   const nodeById = new Map((nodes || []).map(n => [n.id, n]));
 
-  // Group chain items by computed depth (use computeDepthsFromTiers to be safe)
+  // Compute depths using existing helper
   const depths = typeof computeDepthsFromTiers === 'function'
     ? computeDepthsFromTiers(chain, rootItem)
     : {};
 
-  // Build tier groups keyed by depth (level)
+  // Group non-raw chain items by computed depth (level)
   const levelGroups = {};
   for (const [item, data] of Object.entries(chain || {})) {
+    if (data && data.raw) continue; // skip raw items entirely
     const depth = Number.isFinite(Number(depths[item])) ? Number(depths[item]) : 0;
     if (!levelGroups[depth]) levelGroups[depth] = [];
     levelGroups[depth].push([item, data]);
   }
 
-  // Sort levels ascending (0,1,2,...)
-  const sortedLevels = Object.keys(levelGroups).map(Number).sort((a,b) => a - b);
+  // Sort levels descending (highest first)
+  const sortedLevels = Object.keys(levelGroups).map(Number).sort((a,b) => b - a);
 
-  // Build graph HTML area first (so graph renders above/beside table as before)
+  // Build graph HTML area first
   const graphHTML = renderGraph(nodes, links, rootItem);
 
   const graphArea = document.getElementById("graphArea");
@@ -1132,7 +1133,7 @@ function renderTable(chainObj, rootItem, rate) {
       <tbody>
   `;
 
-  // For each level, render a header row and the items in that level
+  // Render levels from highest down to 0
   for (const level of sortedLevels) {
     const rows = levelGroups[level] || [];
     if (!rows.length) continue;
@@ -1143,29 +1144,22 @@ function renderTable(chainObj, rootItem, rate) {
     rows.sort((a,b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }));
 
     for (const [item, data] of rows) {
-      // Skip raw-only entries from the main table if you prefer (kept here for completeness)
-      // We'll show raw items too so levels are clear.
-      const isRaw = !!data.raw;
+      // data.raw already filtered out above
       let outputPerMachine = "—";
       let machines = "—";
       let railsNeeded = "—";
       const fillColor = MACHINE_COLORS[data.building] || "#ecf0f1";
       const textColor = getTextColor(fillColor);
 
-      if (!isRaw) {
-        const recipe = getRecipe(item);
-        if (recipe && recipe.output && recipe.time) {
-          outputPerMachine = Math.ceil((recipe.output * 60) / recipe.time);
-        }
-        machines = Number.isFinite(Number(data.machines)) ? Math.ceil(data.machines) : "—";
-        const railSpeed = parseInt(document.getElementById("railSelect")?.value || 0);
-        railsNeeded = computeRailsNeeded(data.inputs || {}, railSpeed);
-      } else {
-        // For raw items, machines typically are extractors; show extractor totals if available
-        machines = data.machines ? Math.ceil(data.machines) : "—";
+      const recipe = getRecipe(item);
+      if (recipe && recipe.output && recipe.time) {
+        outputPerMachine = Math.ceil((recipe.output * 60) / recipe.time);
       }
+      machines = Number.isFinite(Number(data.machines)) ? Math.ceil(data.machines) : "—";
+      const railSpeed = parseInt(document.getElementById("railSelect")?.value || 0);
+      railsNeeded = computeRailsNeeded(data.inputs || {}, railSpeed);
 
-      // Inputs: list each input as "Name: X/min" sorted by name
+      // Inputs: list each input as "Name: X/min" sorted by name; include raw inputs if present
       const inputsList = Object.entries(data.inputs || {})
         .sort((a,b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }))
         .map(([iname, amt]) => `${escapeHtml(iname)}: ${Math.ceil(amt)}/min`)
@@ -1185,9 +1179,9 @@ function renderTable(chainObj, rootItem, rate) {
     }
   }
 
-  // Machines required summary (unchanged)
   html += `</tbody></table>`;
 
+  // Machines required summary (unchanged)
   html += `
     <h3>MACHINES REQUIRED (total)</h3>
     <table>
