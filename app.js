@@ -1005,36 +1005,54 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
   function clampTranslation(proposedTx, proposedTy, proposedScale) {
     const bbox = getContentBBox();
     const view = getViewSizeInSvgCoords();
+
+    // scaled layer size
     const layerW = bbox.width * proposedScale;
     const layerH = bbox.height * proposedScale;
 
-    const minTxLarge = view.width - layerW - bbox.x * proposedScale;
-    const maxTxLarge = -bbox.x * proposedScale;
-    const minTyLarge = view.height - layerH - bbox.y * proposedScale;
-    const maxTyLarge = -bbox.y * proposedScale;
+    // compute top/bottom of the scaled bbox in SVG coords
+    const bboxTop = bbox.y * proposedScale;
+    const bboxBottom = bboxTop + layerH;
 
-    const overlapFraction = 0.12;
-    const allowedExtraX = Math.max((view.width - layerW) * (1 - overlapFraction), 0);
-    const allowedExtraY = Math.max((view.height - layerH) * (1 - overlapFraction), 0);
+    // small margin (px -> approximate svg coords)
+    const marginPx = Math.max(24, Math.min(120, Math.round(Math.min(view.width, view.height) * 0.05)));
+    const pxToSvgX = view.width && svg && svg.getBoundingClientRect ? (view.width / svg.getBoundingClientRect().width) : 1;
+    const pxToSvgY = view.height && svg && svg.getBoundingClientRect ? (view.height / svg.getBoundingClientRect().height) : 1;
+    const marginSvgX = marginPx * pxToSvgX;
+    const marginSvgY = marginPx * pxToSvgY;
+
+    // overlap fractions (how much extra is allowed when content is smaller)
+    const overlapFractionX = 0.12;
+    const overlapFractionY = 0.30; // larger vertical allowance
 
     let clampedTx = proposedTx;
     let clampedTy = proposedTy;
 
+    // Horizontal clamp
     if (layerW > view.width) {
-      clampedTx = Math.min(maxTxLarge, Math.max(minTxLarge, proposedTx));
+      const minTx = view.width - layerW - bbox.x * proposedScale;
+      const maxTx = -bbox.x * proposedScale;
+      clampedTx = Math.min(maxTx + marginSvgX, Math.max(minTx - marginSvgX, proposedTx));
     } else {
       const centerTx = (view.width - layerW) / 2 - bbox.x * proposedScale;
-      const minTxSmall = centerTx - allowedExtraX / 2;
-      const maxTxSmall = centerTx + allowedExtraX / 2;
+      const allowedExtraX = Math.max((view.width - layerW) * (1 - overlapFractionX), 0);
+      const minTxSmall = centerTx - allowedExtraX / 2 - marginSvgX;
+      const maxTxSmall = centerTx + allowedExtraX / 2 + marginSvgX;
       clampedTx = Math.min(maxTxSmall, Math.max(minTxSmall, proposedTx));
     }
 
+    // Vertical clamp (use explicit bboxTop/bottom)
     if (layerH > view.height) {
-      clampedTy = Math.min(maxTyLarge, Math.max(minTyLarge, proposedTy));
+      // When content taller than view, allow panning so top/bottom can reach edges
+      const minTy = view.height - bboxBottom;
+      const maxTy = -bboxTop;
+      clampedTy = Math.min(maxTy + marginSvgY, Math.max(minTy - marginSvgY, proposedTy));
     } else {
+      // Content smaller than view: center it but allow extra vertical freedom
       const centerTy = (view.height - layerH) / 2 - bbox.y * proposedScale;
-      const minTySmall = centerTy - allowedExtraY / 2;
-      const maxTySmall = centerTy + allowedExtraY / 2;
+      const allowedExtraY = Math.max((view.height - layerH) * (1 - overlapFractionY), 0);
+      const minTySmall = centerTy - allowedExtraY / 2 - marginSvgY;
+      const maxTySmall = centerTy + allowedExtraY / 2 + marginSvgY;
       clampedTy = Math.min(maxTySmall, Math.max(minTySmall, proposedTy));
     }
 
