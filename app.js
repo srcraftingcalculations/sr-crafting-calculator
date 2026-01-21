@@ -778,6 +778,8 @@ function renderGraph(nodes, links, rootItem) {
   const ARROW_GAP_FROM_LABEL = 6;
   const UP_ARROW_EXTRA_LIFT = 4;
 
+  const H_ARROW_HALF_HEIGHT = 5;
+  const H_ARROW_WIDTH = 8;
 
   const LABEL_OFFSET = 6;
 
@@ -999,6 +1001,60 @@ function renderGraph(nodes, links, rootItem) {
           fill="${defaultLineColor}" />
       `;
     }
+  }
+
+  // ---------------------------------
+  // HORIZONTAL TOP CONNECTIONS (→)
+  // ---------------------------------
+
+  // group RIGHT helpers by column X
+  const helpersByX = {};
+  for (const h of rightHelpers) {
+    if (!helpersByX[h.x]) helpersByX[h.x] = [];
+    helpersByX[h.x].push(h);
+  }
+
+  // sorted column X positions (left → right)
+  const columnXs = Object.keys(helpersByX)
+    .map(Number)
+    .sort((a, b) => a - b);
+
+  // connect adjacent columns
+  for (let i = 0; i < columnXs.length - 1; i++) {
+    const x1 = columnXs[i];
+    const x2 = columnXs[i + 1];
+
+    const colA = helpersByX[x1].sort((a, b) => a.y - b.y);
+    const colB = helpersByX[x2].sort((a, b) => a.y - b.y);
+
+    if (!colA.length || !colB.length) continue;
+
+    // TOP helper in each column
+    const from = colA[0];
+    const to = colB[0];
+
+    const y = from.y;
+    const midX = (from.x + to.x) / 2;
+
+    // horizontal line
+    inner += `
+      <line
+        x1="${from.x}" y1="${y}"
+        x2="${to.x}"   y2="${y}"
+        stroke="${defaultLineColor}"
+        stroke-width="1.6" />
+    `;
+
+    // right-pointing arrow (perfectly centered)
+    inner += `
+      <polygon
+        points="
+          ${midX + H_ARROW_WIDTH},${y}
+          ${midX},${y - H_ARROW_HALF_HEIGHT}
+          ${midX},${y + H_ARROW_HALF_HEIGHT}
+        "
+        fill="${defaultLineColor}" />
+    `;
   }
 
   // ---------------------------------
