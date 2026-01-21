@@ -763,7 +763,7 @@ function buildGraphData(chain, rootItem) {
   return { nodes, links };
 }
 
-// Deterministic renderGraph (no pulses). Drop-in replacement for the removed renderer.
+// Deterministic renderGraph. Drop-in replacement for the removed renderer.
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
   const ANCHOR_RADIUS = 5;
@@ -847,9 +847,6 @@ function renderGraph(nodes, links, rootItem) {
     const outputs = colNodes.filter(n => !(n.raw && n.depth === minDepth) && (n.hasOutputAnchor || (n.id === BBM_ID || n.label === BBM_ID)) && n.depth !== maxDepth);
     if (!outputs.length) continue;
     const consumerDepths = new Set();
-    // NOTE: we intentionally do not create node-to-node SVG lines.
-    // The bypass detection below still uses the logical `links` if present,
-    // but no direct node->node <line> elements will be emitted.
     for (const outNode of outputs) {
       for (const link of links) {
         if (link.to !== outNode.id) continue;
@@ -933,8 +930,33 @@ function renderGraph(nodes, links, rootItem) {
     ${spineSvg}
   `;
 
-  // NOTE: Node-to-node SVG edges have been removed intentionally.
-  // The code that previously emitted <line class="graph-edge"> elements is deleted.
+  // --- Node-to-node edges (restricted) ---
+  // Only emit node->node lines when source is raw in far-left column (minDepth)
+  // and destination is in minDepth or minDepth+1.
+  (function emitRestrictedRawEdges() {
+    const defaultLineColor = isDarkMode() ? '#dcdcdc' : '#444444';
+    const defaultRawColor = '#333333';
+    for (const link of links || []) {
+      const src = nodeById.get(link.from);
+      const dst = nodeById.get(link.to);
+      if (!src || !dst) continue;
+      if (!src.raw) continue;
+      if (src.depth !== minDepth) continue;
+      if (!(dst.depth === minDepth || dst.depth === (minDepth + 1))) continue;
+
+      const x1 = roundCoord(src.x);
+      const y1 = roundCoord(src.y);
+      const x2 = roundCoord(dst.x);
+      const y2 = roundCoord(dst.y);
+
+      const isRawDirect = (dst.building === 'Smelter' || dst.id === BBM_ID);
+      if (isRawDirect) {
+        inner += `<line class="graph-edge graph-edge-raw" data-from="${escapeHtml(src.id)}" data-to="${escapeHtml(dst.id)}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${defaultRawColor}" stroke-width="2.6" />`;
+      } else {
+        inner += `<line class="graph-edge" data-from="${escapeHtml(src.id)}" data-to="${escapeHtml(dst.id)}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${defaultLineColor}" stroke-width="1.6" />`;
+      }
+    }
+  })();
 
   // Node-to-helper connectors and helper dots
   const helperMap = new Map();
