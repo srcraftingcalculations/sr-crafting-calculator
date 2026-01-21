@@ -1000,131 +1000,42 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
 
   function clampTranslation(proposedTx, proposedTy, proposedScale) {
     const bbox = getContentBBox();
-    const rect = svg.getBoundingClientRect();
-    if (!bbox || !rect || !svg.getScreenCTM) return { tx: proposedTx, ty: proposedTy };
-
-    // view size in SVG coords (same helper you already use)
     const view = getViewSizeInSvgCoords();
-
-    // layer size in SVG units after scaling
     const layerW = bbox.width * proposedScale;
     const layerH = bbox.height * proposedScale;
 
-    // horizontal bounds (keep your existing logic)
-    const minTxLarge = view.width - layerW - bbox.x * proposedScale;
-    const maxTxLarge = -bbox.x * proposedScale;
-
-    // small vertical margin in SVG coords
+    // small buffer in SVG coords
     const marginSvgY = Math.max(8, view.height * 0.03);
 
-    // Helper: map an SVG point AFTER applying the proposed transform to screen pixels
-    const toScreen = (svgX, svgY) => {
-      // apply the same transform convention your code uses: svg -> scaled -> translated
-      // (we treat proposedTx/proposedTy as the translation applied after scaling in SVG units)
-      const transformedX = svgX * proposedScale + proposedTx;
-      const transformedY = svgY * proposedScale + proposedTy;
-      const p = svg.createSVGPoint();
-      p.x = transformedX; p.y = transformedY;
-      const screenP = p.matrixTransform(svg.getScreenCTM());
-      return { x: screenP.x, y: screenP.y };
-    };
+    const minTxLarge = view.width - layerW - bbox.x * proposedScale;
+    const maxTxLarge = -bbox.x * proposedScale;
+    // Correct vertical bounds: use content bottom explicitly and add a small margin
+    const minTyLarge = view.height - (bbox.y + bbox.height) * proposedScale - marginSvgY;
+    const maxTyLarge = -bbox.y * proposedScale + marginSvgY;
 
-    // Compute where the content edges would land on screen with the proposed transform
-    const topLeftScreen = toScreen(bbox.x, bbox.y);
-    const bottomRightScreen = toScreen(bbox.x + bbox.width, bbox.y + bbox.height);
+    const overlapFraction = 0.12;
+    const allowedExtraX = Math.max((view.width - layerW) * (1 - overlapFraction), 0);
+    const allowedExtraY = Math.max((view.height - layerH) * (1 - overlapFraction), 0);
 
-    const contentTopPx = Math.min(topLeftScreen.y, bottomRightScreen.y);
-    const contentBottomPx = Math.max(topLeftScreen.y, bottomRightScreen.y);
-
-    const viewTopPx = rect.top;
-    const viewBottomPx = rect.top + rect.height;
-
-    // Desired pixel adjustments to ensure edges are within margin
-    const marginPx = Math.max(12, Math.min(160, Math.round(Math.min(rect.width, rect.height) * 0.04)));
-    let adjustYPx = 0;
-    if (contentTopPx > viewTopPx + marginPx) {
-      // content sits below top margin; nudge up
-      adjustYPx = (viewTopPx + marginPx) - contentTopPx;
-    } else if (contentBottomPx < viewBottomPx - marginPx) {
-      // content bottom is above bottom margin; nudge down
-      adjustYPx = (viewBottomPx - marginPx) - contentBottomPx;
-    } else {
-      // already within margins
-      adjustYPx = 0;
-    }
-
-    // If no adjustment needed, we can compute horizontal clamp and return
-    // But we still compute horizontal clamping below.
-    if (adjustYPx === 0) {
-      // Horizontal clamping
-      let clampedTx = proposedTx;
-      if (layerW > view.width) {
-        clampedTx = Math.min(maxTxLarge, Math.max(minTxLarge, proposedTx));
-      } else {
-        const overlapFraction = 0.12;
-        const allowedExtraX = Math.max((view.width - layerW) * (1 - overlapFraction), 0);
-        const centerTx = (view.width - layerW) / 2 - bbox.x * proposedScale;
-        const minTxSmall = centerTx - allowedExtraX / 2;
-        const maxTxSmall = centerTx + allowedExtraX / 2;
-        clampedTx = Math.min(maxTxSmall, Math.max(minTxSmall, proposedTx));
-      }
-      return { tx: clampedTx, ty: proposedTy };
-    }
-
-    // Convert pixel adjustment back to SVG-space translation delta.
-    // We sample two nearby SVG points, map them to screen, and compute px per SVG-unit.
-    const sampleA = svg.createSVGPoint(); sampleA.x = bbox.x; sampleA.y = bbox.y;
-    const sampleB = svg.createSVGPoint(); sampleB.x = bbox.x + 1; sampleB.y = bbox.y + 1;
-    const sA = sampleA.matrixTransform(svg.getScreenCTM());
-    const sB = sampleB.matrixTransform(svg.getScreenCTM());
-    const svgToScreenScaleX = Math.abs(sB.x - sA.x) || 1;
-    const svgToScreenScaleY = Math.abs(sB.y - sA.y) || 1;
-
-    // px per SVG unit after proposedScale
-    const pxPerSvgX = svgToScreenScaleX * proposedScale;
-    const pxPerSvgY = svgToScreenScaleY * proposedScale;
-
-    // Convert pixel delta to SVG translation delta (guard divide-by-zero)
-    const deltaTySvg = adjustYPx / (pxPerSvgY || 1);
-
-    // Apply the SVG-space delta to proposedTy to get a corrected ty
-    let correctedTy = proposedTy + deltaTySvg;
-
-    // Now apply horizontal clamping (same as before)
     let clampedTx = proposedTx;
+    let clampedTy = proposedTy;
+
     if (layerW > view.width) {
       clampedTx = Math.min(maxTxLarge, Math.max(minTxLarge, proposedTx));
     } else {
-      const overlapFraction = 0.12;
-      const allowedExtraX = Math.max((view.width - layerW) * (1 - overlapFraction), 0);
       const centerTx = (view.width - layerW) / 2 - bbox.x * proposedScale;
       const minTxSmall = centerTx - allowedExtraX / 2;
       const maxTxSmall = centerTx + allowedExtraX / 2;
       clampedTx = Math.min(maxTxSmall, Math.max(minTxSmall, proposedTx));
     }
 
-    // Final vertical small-layer handling (if content smaller than view)
-    let clampedTy = correctedTy;
-    if (layerH <= view.height) {
-      const overlapFraction = 0.12;
-      const allowedExtraY = Math.max((view.height - layerH) * (1 - overlapFraction), 0);
+    if (layerH > view.height) {
+      clampedTy = Math.min(maxTyLarge, Math.max(minTyLarge, proposedTy));
+    } else {
       const centerTy = (view.height - layerH) / 2 - bbox.y * proposedScale;
       const minTySmall = centerTy - allowedExtraY / 2 - marginSvgY;
       const maxTySmall = centerTy + allowedExtraY / 2 + marginSvgY;
-      clampedTy = Math.min(maxTySmall, Math.max(minTySmall, correctedTy));
-    } else {
-      // When content is taller than view, ensure correctedTy is within large bounds
-      let minTyLarge = view.height - (bbox.y + bbox.height) * proposedScale - marginSvgY;
-      let maxTyLarge = -bbox.y * proposedScale + marginSvgY;
-      // small extra slack so bottom can be reached
-      const extraSlack = Math.max(0, (layerH - view.height) * 0.02);
-      minTyLarge -= extraSlack;
-      if (minTyLarge > maxTyLarge) {
-        const tmp = minTyLarge;
-        minTyLarge = Math.min(tmp, maxTyLarge);
-        maxTyLarge = Math.max(tmp, maxTyLarge);
-      }
-      clampedTy = Math.min(maxTyLarge, Math.max(minTyLarge, correctedTy));
+      clampedTy = Math.min(maxTySmall, Math.max(minTySmall, proposedTy));
     }
 
     return { tx: clampedTx, ty: clampedTy };
@@ -1134,7 +1045,7 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     const clamped = clampTranslation(tx, ty, scale);
     tx = clamped.tx;
     ty = clamped.ty;
-    zoomLayer.setAttribute('transform', `scale(${scale}) translate(${tx},${ty})`);
+    zoomLayer.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
   }
 
   function zoomAt(newScale, cx, cy) {
