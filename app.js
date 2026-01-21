@@ -560,43 +560,20 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     const bbox = getContentBBox();           // SVG coords
     const view = getViewSizeInSvgCoords();   // SVG coords
 
-    // Fixed buffer that must always stay visible
+    // Fixed visible buffer (independent of zoom)
     const buffer = Math.max(12, Math.min(view.width, view.height) * 0.04);
 
-    // Compute scaled content edges in viewport space
-    const left   = bbox.x * proposedScale + proposedTx;
-    const right  = (bbox.x + bbox.width) * proposedScale + proposedTx;
-    const top    = bbox.y * proposedScale + proposedTy;
-    const bottom = (bbox.y + bbox.height) * proposedScale + proposedTy;
+    // Compute min/max allowed translation in SVG coords
+    const minTx = buffer - (bbox.x + bbox.width) * proposedScale;
+    const maxTx = view.width - buffer - bbox.x * proposedScale;
 
-    let tx = proposedTx;
-    let ty = proposedTy;
+    const minTy = buffer - (bbox.y + bbox.height) * proposedScale;
+    const maxTy = view.height - buffer - bbox.y * proposedScale;
 
-    // ─────────────────────────
-    // HARD EDGE CLAMPS
-    // ─────────────────────────
-
-    // Left edge
-    if (left > view.width - buffer) {
-      tx -= left - (view.width - buffer);
-    }
-
-    // Right edge
-    if (right < buffer) {
-      tx += buffer - right;
-    }
-
-    // Top edge
-    if (top > view.height - buffer) {
-      ty -= top - (view.height - buffer);
-    }
-
-    // Bottom edge (your explicit requirement)
-    if (bottom < buffer) {
-      ty += buffer - bottom;
-    }
-
-    return { tx, ty };
+    return {
+      tx: Math.min(maxTx, Math.max(minTx, proposedTx)),
+      ty: Math.min(maxTy, Math.max(minTy, proposedTy))
+    };
   }
 
   function applyTransform() {
