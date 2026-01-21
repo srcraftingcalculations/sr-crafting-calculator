@@ -763,14 +763,11 @@ function buildGraphData(chain, rootItem) {
   return { nodes, links };
 }
 
-// Deterministic renderGraph (no pulses). Drop-in replacement for the removed renderer.
-// Full updated renderGraph function with direct node->node lines for allowed raw links
-// - Draws straight SVG <line> between node centers when the source is a raw in the far-left column
-//   and the destination is in minDepth or minDepth+1.
-// - Keeps helper dots, node-to-helper connector lines, spines, bypass connectors, anchors, and node visuals.
-// - Assumes constants and helpers used elsewhere in the app are available: MACHINE_COL_WIDTH, GRAPH_ROW_HEIGHT,
-//   GRAPH_CONTENT_PAD, GRAPH_LABEL_OFFSET, BBM_ID, LEFT_OF_CONSUMER_RAWS, MACHINE_COL_WIDTH, etc.
-// - Uses isDarkMode(), escapeHtml(), MACHINE_COLORS, getTextColor() and other app helpers if present.
+// Full renderGraph implementation
+// - Draws direct node->node center lines for allowed raw links:
+//   source must be raw and in far-left column (minDepth), destination must be in minDepth or minDepth+1.
+// - Does NOT draw helper dot/left anchor for raw nodes in the far-left column.
+// - Keeps helper dots/anchors for non-raw nodes, spines, bypass connectors, and node visuals.
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
   const ANCHOR_RADIUS = 5;
@@ -821,14 +818,15 @@ function renderGraph(nodes, links, rootItem) {
   const minDepth = nodes.length ? Math.min(...nodes.map(n => n.depth)) : 0;
   const maxDepth = nodes.length ? Math.max(...nodes.map(n => n.depth)) : 0;
 
-  // Compute helper positions and bypass needs
+  // Compute helper positions and bypass needs (helpers for non-raw nodes)
   const willRenderAnchors = [];
   for (const node of nodes) {
     const isSmelter = (node.building === 'Smelter');
     const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
     const rawRightOnly = !!(node.raw && node.depth !== minDepth);
 
-    if (node.hasInputAnchor && !isSmelter && !isBBM) {
+    // Do NOT render left helper/anchor for raw nodes that sit in the far-left column
+    if (node.hasInputAnchor && !isSmelter && !isBBM && !(node.raw && node.depth === minDepth)) {
       willRenderAnchors.push({ side:'left', node, pos: anchorLeftPos(node) });
     }
     if ((node.hasOutputAnchor || rawRightOnly || isBBM) && node.depth !== maxDepth) {
@@ -937,7 +935,7 @@ function renderGraph(nodes, links, rootItem) {
     ${spineSvg}
   `;
 
-  // --- Direct node-to-node lines (restricted) ---
+  // --- Direct node-to-node center lines (restricted) ---
   (function emitDirectNodeLines() {
     const lineColor = isDarkMode() ? '#dcdcdc' : '#444444';
     const rawLineColor = '#333333';
@@ -946,10 +944,7 @@ function renderGraph(nodes, links, rootItem) {
       const dst = nodeById.get(link.to);
       if (!src || !dst) continue;
 
-      // Only draw direct node->node lines when:
-      // - source is raw
-      // - source is in the far-left column (minDepth)
-      // - destination is in minDepth or minDepth + 1
+      // Only draw when source is raw in far-left column and destination is in minDepth or minDepth+1
       if (!src.raw) continue;
       if (src.depth !== minDepth) continue;
       if (!(dst.depth === minDepth || dst.depth === (minDepth + 1))) continue;
@@ -967,7 +962,7 @@ function renderGraph(nodes, links, rootItem) {
     }
   })();
 
-  // Node-to-helper connectors and helper dots (anchors and helper dots remain)
+  // Node-to-helper connectors and helper dots (do not add left helper for raw nodes in far-left)
   const helperMap = new Map();
   const defaultLineColor = isDarkMode() ? '#dcdcdc' : '#444444';
   for (const node of nodes) {
@@ -983,7 +978,7 @@ function renderGraph(nodes, links, rootItem) {
       inner += `<g class="anchor anchor-right" data-node="${escapeHtml(node.id)}" data-side="right" transform="translate(${a.x},${a.y})" tabindex="0" role="button" aria-label="Output anchor for ${escapeHtml(node.label)}"><circle class="anchor-hit" cx="0" cy="0" r="${ANCHOR_HIT_RADIUS}" fill="transparent" pointer-events="all" /><circle class="anchor-dot" cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--anchor-dot-fill)" stroke="var(--anchor-dot-stroke)" stroke-width="1.2" /></g>`;
     }
 
-    if (node.hasInputAnchor && !isSmelter && !isBBM) {
+    if (node.hasInputAnchor && !isSmelter && !isBBM && !(node.raw && node.depth === minDepth)) {
       const a = anchorLeftPos(node);
       helperMap.set(`${node.id}:left`, a);
       inner += `<line class="node-to-helper" data-node="${escapeHtml(node.id)}" data-side="left" x1="${roundCoord(node.x - nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" stroke="${defaultLineColor}" stroke-width="1.2" />`;
@@ -1064,7 +1059,7 @@ function renderGraph(nodes, links, rootItem) {
 
   const html = `<div class="graphWrapper" data-vb="${viewBoxX},${viewBoxY},${viewBoxW},${viewBoxH}" style="${wrapperStyle}"><div class="graphViewport"><svg xmlns="http://www.w3.org/2000/svg" class="graphSVG" viewBox="${viewBoxX} ${viewBoxY} ${viewBoxW} ${viewBoxH}" preserveAspectRatio="xMidYMid meet"><g id="zoomLayer">${inner}</g></svg></div></div>`;
 
-  // Theme observer kept as before if needed
+  // Theme observer (keeps colors in sync)
   (function installThemeObserverOnce(){
     if (window._graphThemeObserverInstalled) return;
     window._graphThemeObserverInstalled = true;
