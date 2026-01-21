@@ -811,9 +811,6 @@ function renderGraph(nodes, links, rootItem) {
     });
   }
 
-  const minDepth = Math.min(...nodes.map(n => n.depth));
-  const maxDepth = Math.max(...nodes.map(n => n.depth));
-
   const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
   const minX = nodes.length ? Math.min(...xs) : 0;
   const maxX = nodes.length ? Math.max(...xs) : 0;
@@ -898,21 +895,6 @@ function renderGraph(nodes, links, rootItem) {
 
   // Build spines
   let spineSvg = '';
-
-  // Arrow marker definition (added once)
-  spineSvg += `
-    <defs>
-      <marker id="spineArrow"
-        markerWidth="8"
-        markerHeight="8"
-        refX="7"
-        refY="4"
-        orient="auto"
-        markerUnits="strokeWidth">
-        <path d="M0,0 L8,4 L0,8 Z" fill="${isDarkMode() ? '#bdbdbd' : '#666666'}" />
-      </marker>
-    </defs>
-  `;
 
   for (let i = 0; i < depthsSorted.length; i++) {
     const depth = depthsSorted[i];
