@@ -334,10 +334,10 @@ function buildGraphData(chain, rootItem) {
 })();
 
 /**
- * renderGraph
- * - Consistent color palette for lines, spines, anchors, and bypasses
- * - Label background "blur box" to keep text readable in light and dark mode
- * - Left/right anchors only; BBM placed in smelter column; smelter input suppressed;
+ * renderGraph (labels centered in blur box)
+ *
+ * - Centers label text both horizontally and vertically inside the blurred label box
+ * - Left/right anchors only; BBM in smelter column; smelter input suppressed;
  *   raw nodes off far-left get right-only anchors; helper dots connected to nodes
  *
  * Assumes globals: GRAPH_COL_WIDTH, GRAPH_ROW_HEIGHT, GRAPH_CONTENT_PAD,
@@ -353,10 +353,10 @@ function renderGraph(nodes, links, rootItem) {
   const BBM_ID = 'Basic Building Material';
 
   // Color palette (consistent across all connectors and spines)
-  const LINE_COLOR = isDark ? '#dcdcdc' : '#444444';        // general connector color
-  const SPINE_COLOR = isDark ? '#bdbdbd' : '#666666';       // spines and structural lines
-  const BYPASS_FILL = isDark ? '#ffffff' : '#2c3e50';       // bypass dot fill
-  const RAW_EDGE_COLOR = '#333333';                         // raw node direct edges
+  const LINE_COLOR = isDark ? '#dcdcdc' : '#444444';
+  const SPINE_COLOR = isDark ? '#bdbdbd' : '#666666';
+  const BYPASS_FILL = isDark ? '#ffffff' : '#2c3e50';
+  const RAW_EDGE_COLOR = '#333333';
   const NODE_STROKE = '#2c3e50';
 
   // Label box fills (semi-opaque to ensure readability)
@@ -682,7 +682,9 @@ function renderGraph(nodes, links, rootItem) {
     const strokeColor = NODE_STROKE;
     const textColor = getTextColor(fillColor);
     const labelText = String(node.label || node.id).trim();
-    const labelY = node.y - GRAPH_LABEL_OFFSET;
+    const labelFontSize = 13;
+    const labelPaddingX = 8;
+    const labelPaddingY = 6;
 
     const hideAllAnchors = (node.raw && node.depth === minDepth);
     const isSmelter = (node.building === 'Smelter');
@@ -695,22 +697,20 @@ function renderGraph(nodes, links, rootItem) {
 
     // Label background box sizing (approximate; keeps text readable)
     const approxCharWidth = 7; // px per character (approx for font-size 13)
-    const labelFontSize = 13;
-    const labelPaddingX = 8;
-    const labelPaddingY = 6;
     const labelBoxWidth = Math.max(40, Math.ceil(labelText.length * approxCharWidth) + labelPaddingX * 2);
     const labelBoxHeight = labelFontSize + labelPaddingY;
     const labelBoxX = roundCoord(node.x - labelBoxWidth / 2);
-    const labelBoxY = roundCoord(labelY - labelBoxHeight + 2); // slightly above the text baseline
+    const labelBoxY = roundCoord((node.y - GRAPH_LABEL_OFFSET) - labelBoxHeight / 2);
+    const labelCenterY = roundCoord(labelBoxY + labelBoxHeight / 2);
 
     // Node markup
     inner += `
       <g class="graph-node" data-id="${escapeHtml(node.id)}" tabindex="0" role="button" aria-label="${escapeHtml(node.label)}" style="outline:none;">
-        <!-- label background box with subtle blur to improve readability -->
+        <!-- label background box with subtle blur to improve readability; centered under text -->
         <rect class="label-box" x="${labelBoxX}" y="${labelBoxY}" width="${labelBoxWidth}" height="${labelBoxHeight}"
               rx="6" ry="6" fill="${LABEL_BOX_FILL}" stroke="${LABEL_BOX_STROKE}" stroke-width="0.6" filter="url(#labelBlur)" pointer-events="none" />
-        <text class="nodeLabel" x="${node.x}" y="${labelY}"
-              text-anchor="middle" font-size="${labelFontSize}" font-weight="700"
+        <text class="nodeLabel" x="${node.x}" y="${labelCenterY}"
+              text-anchor="middle" dominant-baseline="middle" font-size="${labelFontSize}" font-weight="700"
               fill="${textColor}" stroke="${isDark ? '#000' : '#fff'}" stroke-width="0.6" paint-order="stroke" pointer-events="none">
           ${escapeHtml(labelText)}
         </text>
