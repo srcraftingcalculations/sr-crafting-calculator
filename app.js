@@ -821,26 +821,23 @@ function renderGraph(nodes, links, rootItem) {
   const bypassOutputDepths = new Set();
   const bypassInputDepths = new Set();
 
-  // map item → deepest consuming column
-  const maxConsumerDepthByItem = new Map();
+  // map output node id → deepest consuming column
+  const maxConsumerDepthBySource = new Map();
 
+  // first pass: find deepest consumer per output
   for (const link of links) {
     const from = nodes.find(n => n.id === link.source);
     const to   = nodes.find(n => n.id === link.target);
     if (!from || !to) continue;
 
-    const item = link.item; // or however item identity is tracked
-    const prev = maxConsumerDepthByItem.get(item) ?? -Infinity;
-    maxConsumerDepthByItem.set(item, Math.max(prev, to.depth));
+    const prev = maxConsumerDepthBySource.get(from.id) ?? -Infinity;
+    maxConsumerDepthBySource.set(from.id, Math.max(prev, to.depth));
   }
 
-  // now decide bypasses
-  for (const link of links) {
-    const from = nodes.find(n => n.id === link.source);
+  // second pass: mark bypass depths
+  for (const [sourceId, maxDepth] of maxConsumerDepthBySource.entries()) {
+    const from = nodes.find(n => n.id === sourceId);
     if (!from) continue;
-
-    const item = link.item;
-    const maxDepth = maxConsumerDepthByItem.get(item);
 
     if (maxDepth > from.depth + 1) {
       bypassOutputDepths.add(from.depth);
@@ -848,6 +845,7 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
+  // vertical padding for bypass dots
   const bypassExtraTop =
     (bypassOutputDepths.size || bypassInputDepths.size)
       ? BYPASS_Y_OFFSET + BYPASS_RADIUS + 12
