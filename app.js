@@ -333,15 +333,17 @@ function buildGraphData(chain, rootItem) {
   document.head.appendChild(style);
 })();
 
-/* ===============================
-   renderGraph (final: strict center-to-center)
-   - All connectors target circle centers (node centers, helper centers, bypass centers)
-   - Bypass center is computed directly from the top helper center Y (explicitly used)
-   - Vertical connectors use the bypass/input anchor X so they are truly vertical
-   - Connectors drawn before dots; stroke-linecap="butt" to avoid cap artifacts
-   - Assumes globals: GRAPH_COL_WIDTH, GRAPH_ROW_HEIGHT, GRAPH_CONTENT_PAD,
-     GRAPH_LABEL_OFFSET, MACHINE_COLORS, isDarkMode(), escapeHtml(), getTextColor()
-   =============================== */
+/**
+ * renderGraph (center-to-center; left/right anchors only)
+ * - Uses only left/right anchors (no top anchors)
+ * - All vertical connectors are center-to-center: connector endpoints use the exact same
+ *   numeric center values used to render the anchor <g> transforms
+ * - Connectors are appended before anchor groups so circles visually cover joints
+ * - Consistent rounding applied via roundCoord()
+ *
+ * Assumes globals: GRAPH_COL_WIDTH, GRAPH_ROW_HEIGHT, GRAPH_CONTENT_PAD,
+ * GRAPH_LABEL_OFFSET, MACHINE_COLORS, isDarkMode(), escapeHtml(), getTextColor()
+ */
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
   const ANCHOR_RADIUS = 5;
@@ -349,120 +351,93 @@ function renderGraph(nodes, links, rootItem) {
   const ANCHOR_OFFSET = 18;
   const isDark = isDarkMode();
 
-  const BBM_ID = 'Basic Building Material';
-  const TARGET_SMELTER_OUTPUTS = ['Calcium Block', 'Titanium Bar', 'Wolfram Bar'];
+  // small helper to avoid sub-pixel mismatches
+  function roundCoord(v) { return Math.round(v * 100) / 100; }
 
-  // Ensure anchor flags exist
+  // anchor center helpers (left/right only)
+  function anchorRightPos(node) { return { x: roundCoord(node.x + nodeRadius + ANCHOR_OFFSET), y: roundCoord(node.y) }; }
+  function anchorLeftPos(node)  { return { x: roundCoord(node.x - nodeRadius - ANCHOR_OFFSET), y: roundCoord(node.y) }; }
+
+  // ensure anchor flags exist
   for (const n of nodes) {
     if (typeof n.hasInputAnchor === 'undefined') n.hasInputAnchor = true;
     if (typeof n.hasOutputAnchor === 'undefined') n.hasOutputAnchor = true;
-    if (typeof n.hasTopAnchor === 'undefined') n.hasTopAnchor = false;
   }
 
   const nodeById = new Map(nodes.map(n => [n.id, n]));
 
-  // Align BBM with canonical smelter outputs if present
-  const targetNodes = nodes.filter(n => TARGET_SMELTER_OUTPUTS.includes(n.id));
-  if (targetNodes.length > 0) {
-    const depthCounts = {};
-    for (const n of targetNodes) {
-      if (typeof n.depth === 'number') depthCounts[n.depth] = (depthCounts[n.depth] || 0) + 1;
-    }
-    const depths = Object.keys(depthCounts).map(d => Number(d));
-    if (depths.length > 0) {
-      depths.sort((a, b) => depthCounts[b] - depthCounts[a]);
-      const chosenDepth = depths[0];
-      const bbmNode = nodes.find(n => n.id === BBM_ID || n.label === BBM_ID);
-      if (bbmNode) bbmNode.depth = chosenDepth;
-    }
-  }
-
-  // Group nodes by depth
+  // layout (simple column/row layout preserved from prior examples)
   const columns = {};
   for (const node of nodes) {
     if (!columns[node.depth]) columns[node.depth] = [];
     columns[node.depth].push(node);
   }
-
-  // Layout nodes: alphabetical top -> bottom in each column
   for (const [depth, colNodes] of Object.entries(columns)) {
     colNodes.sort((a, b) => (String(a.label || a.id)).localeCompare(String(b.label || b.id), undefined, { sensitivity: 'base' }));
     colNodes.forEach((node, i) => {
       node.x = Number(depth) * GRAPH_COL_WIDTH + 100;
       node.y = i * GRAPH_ROW_HEIGHT + 100;
+      // round node centers too for consistency
+      node.x = roundCoord(node.x);
+      node.y = roundCoord(node.y);
     });
   }
 
-  // Compute bounds
+  // compute bounds for viewBox
   const xs = nodes.map(n => n.x);
   const ys = nodes.map(n => n.y);
   const minX = nodes.length ? Math.min(...xs) : 0;
   const maxX = nodes.length ? Math.max(...xs) : 0;
   const minY = nodes.length ? Math.min(...ys) : 0;
   const maxY = nodes.length ? Math.max(...ys) : 0;
-
   const contentX = minX - nodeRadius - GRAPH_CONTENT_PAD;
   const contentY = minY - nodeRadius - GRAPH_CONTENT_PAD;
   const contentW = (maxX - minX) + (nodeRadius * 2) + GRAPH_CONTENT_PAD * 2;
   const contentH = (maxY - minY) + (nodeRadius * 2) + GRAPH_CONTENT_PAD * 2;
 
-  // Anchor helpers (single source of truth)
-  function anchorRightPos(node) { return { x: node.x + nodeRadius + ANCHOR_OFFSET, y: node.y }; }
-  function anchorLeftPos(node)  { return { x: node.x - nodeRadius - ANCHOR_OFFSET, y: node.y }; }
-  function anchorTopPos(node)   { return { x: node.x, y: node.y - nodeRadius - ANCHOR_OFFSET }; }
-  function anchorBottomPos(node){ return { x: node.x, y: node.y + nodeRadius + ANCHOR_OFFSET }; }
-
+  // determine which anchors will render (left/right)
+  const willRenderAnchors = [];
   const minDepth = nodes.length ? Math.min(...nodes.map(n => n.depth)) : 0;
   const maxDepth = nodes.length ? Math.max(...nodes.map(n => n.depth)) : 0;
-
-  // Determine which anchors will render (so we can compute global helper-dot Ys)
-  const willRenderAnchors = [];
   for (const node of nodes) {
     const hideAllAnchors = (node.raw && node.depth === minDepth);
     const isSmelter = (node.building === 'Smelter');
-    const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
+    const isBBM = (node.id === 'Basic Building Material' || node.label === 'Basic Building Material');
 
     if (!hideAllAnchors && node.hasInputAnchor && !isSmelter && !isBBM) {
-      const p = anchorLeftPos(node);
-      willRenderAnchors.push({ x: p.x, y: p.y, side: 'left', node });
+      willRenderAnchors.push({ side: 'left', node, pos: anchorLeftPos(node) });
     }
     if (!hideAllAnchors && (node.hasOutputAnchor || isBBM) && node.depth !== maxDepth) {
-      const p = anchorRightPos(node);
-      willRenderAnchors.push({ x: p.x, y: p.y, side: 'right', node });
-    }
-    if (!hideAllAnchors && node.hasTopAnchor) {
-      const p = anchorTopPos(node);
-      willRenderAnchors.push({ x: p.x, y: p.y, side: 'top', node });
+      willRenderAnchors.push({ side: 'right', node, pos: anchorRightPos(node) });
     }
   }
 
-  // Compute the shortest positive vertical distance between any two helper dots
-  const uniqueYs = Array.from(new Set(willRenderAnchors.map(a => Math.round(a.y * 100) / 100))).sort((a, b) => a - b);
-  let shortestGap;
+  // compute shortest positive vertical distance between any two helper centers
+  const uniqueYs = Array.from(new Set(willRenderAnchors.map(a => a.pos.y))).sort((a, b) => a - b);
+  let shortestGap = nodeRadius + ANCHOR_OFFSET;
   if (uniqueYs.length >= 2) {
-    shortestGap = Infinity;
+    let sg = Infinity;
     for (let i = 1; i < uniqueYs.length; i++) {
       const gap = Math.abs(uniqueYs[i] - uniqueYs[i - 1]);
-      if (gap > 0 && gap < shortestGap) shortestGap = gap;
+      if (gap > 0 && gap < sg) sg = gap;
     }
-    if (!isFinite(shortestGap)) shortestGap = nodeRadius + ANCHOR_OFFSET;
-  } else {
-    shortestGap = nodeRadius + ANCHOR_OFFSET;
+    if (isFinite(sg)) shortestGap = sg;
   }
+  shortestGap = roundCoord(shortestGap);
 
-  // Compute output bypass dots (center-to-center, explicitly using top helper center Y)
+  // compute output bypass centers per depth using RIGHT anchor centers (center-to-center)
   const depthsSorted = Object.keys(columns).map(d => Number(d)).sort((a, b) => a - b);
-  const needsOutputBypass = new Map(); // depth -> { x, y, topHelperCenter:{x,y}, causingConsumers:Set }
-
+  const needsOutputBypass = new Map(); // depth -> { x, y, helperCenter:{x,y}, causingConsumers:Set }
   for (const depth of depthsSorted) {
     const colNodes = columns[depth] || [];
     const outputs = colNodes.filter(n =>
       !(n.raw && n.depth === minDepth) &&
-      (n.hasOutputAnchor || (n.id === BBM_ID || n.label === BBM_ID)) &&
+      (n.hasOutputAnchor || (n.id === 'Basic Building Material' || n.label === 'Basic Building Material')) &&
       n.depth !== maxDepth
     );
     if (outputs.length === 0) continue;
 
+    // find consumer depths that skip this depth (need bypass)
     const consumerDepths = new Set();
     for (const outNode of outputs) {
       for (const link of links) {
@@ -474,28 +449,22 @@ function renderGraph(nodes, links, rootItem) {
     }
     if (consumerDepths.size === 0) continue;
 
-    // pick the top-most output node in this column
+    // pick top-most output node in this column and use its RIGHT anchor center as canonical helper center
     const topOutputNode = outputs.reduce((a, b) => (a.y < b.y ? a : b));
-    // canonical helper center for that top node (this is the exact center used to draw the helper dot)
-    const topHelperCenter = anchorTopPos(topOutputNode);
-
-    // anchor X for bypass (aligned with output anchors)
-    const anchorX = anchorRightPos(topOutputNode).x;
-
-    // CENTER-TO-CENTER rule: bypass center sits exactly `shortestGap` above the helper center
-    // bypassCenterY = helperCenterY - shortestGap
-    const bypassCenterY = topHelperCenter.y - shortestGap;
+    const helperCenter = anchorRightPos(topOutputNode); // {x,y} rounded
+    const bypassCenterY = roundCoord(helperCenter.y - shortestGap);
+    const bypassX = helperCenter.x; // align bypass X with output anchor X
 
     needsOutputBypass.set(depth, {
-      x: anchorX,
+      x: bypassX,
       y: bypassCenterY,
-      topHelperCenter,
+      helperCenter,
       causingConsumers: consumerDepths
     });
   }
 
-  // Compute input bypass dots (matching center Y to output bypass) and capture top input helper centers
-  const needsInputBypass = new Map(); // consumerDepth -> { x, y, topInputHelperCenter:{x,y} }
+  // compute input bypass centers (match Y to output bypass center) using LEFT anchor centers
+  const needsInputBypass = new Map(); // consumerDepth -> { x, y, helperCenter:{x,y} }
   for (const [outDepth, info] of needsOutputBypass.entries()) {
     for (const consumerDepth of info.causingConsumers) {
       const consumerCol = columns[consumerDepth] || [];
@@ -503,23 +472,25 @@ function renderGraph(nodes, links, rootItem) {
       if (inputNodes.length === 0) continue;
 
       const topInputNode = inputNodes.reduce((a, b) => (a.y < b.y ? a : b));
-      const topInputHelperCenter = anchorTopPos(topInputNode);
-      const inputAnchorX = anchorLeftPos(topInputNode).x;
-
-      // input bypass center shares the same center Y as the output bypass (center-to-center alignment)
-      const inputBypassCenterY = info.y;
+      const topInputHelperCenter = anchorLeftPos(topInputNode);
+      const inputAnchorX = topInputHelperCenter.x;
+      const inputBypassCenterY = info.y; // center-to-center alignment
 
       if (!needsInputBypass.has(consumerDepth)) {
         needsInputBypass.set(consumerDepth, {
           x: inputAnchorX,
           y: inputBypassCenterY,
-          topInputHelperCenter
+          helperCenter: topInputHelperCenter
         });
       }
     }
   }
 
-  // Build spine SVG fragments (unchanged)
+  // expose for debugging if desired
+  window._needsOutputBypass = needsOutputBypass;
+  window._needsInputBypass = needsInputBypass;
+
+  // build spines (unchanged style)
   let spineSvg = '';
   (function buildSpines() {
     for (let i = 0; i < depthsSorted.length; i++) {
@@ -528,8 +499,8 @@ function renderGraph(nodes, links, rootItem) {
       const anchors = [];
       for (const n of colNodes) {
         if (n.raw && n.depth === minDepth) continue;
-        if (n.hasTopAnchor) anchors.push(anchorTopPos(n));
-        if ((n.hasOutputAnchor || (n.id === BBM_ID || n.label === BBM_ID)) && n.depth !== maxDepth) anchors.push(anchorRightPos(n));
+        if (n.hasInputAnchor) anchors.push(anchorLeftPos(n));
+        if ((n.hasOutputAnchor || (n.id === 'Basic Building Material' || n.label === 'Basic Building Material')) && n.depth !== maxDepth) anchors.push(anchorRightPos(n));
       }
       if (anchors.length === 0) continue;
       const ysAnch = anchors.map(p => p.y);
@@ -540,39 +511,18 @@ function renderGraph(nodes, links, rootItem) {
         <line class="graph-spine-vertical" x1="${spineX}" y1="${bottomAnchorY}" x2="${spineX}" y2="${topAnchorY}"
               stroke="#666" stroke-width="2" stroke-linecap="round" opacity="0.95" />
       `;
-      if (i + 1 < depthsSorted.length) {
-        const nextDepth = depthsSorted[i + 1];
-        const nextColNodes = columns[nextDepth] || [];
-        const nextInputs = [];
-        for (const n of nextColNodes) {
-          if (n.raw && n.depth === minDepth) continue;
-          if (n.hasInputAnchor) nextInputs.push(anchorLeftPos(n));
-        }
-        if (nextInputs.length > 0) {
-          const topInY = Math.min(...nextInputs.map(p => p.y));
-          const nextSpineX = nextInputs[0].x;
-          spineSvg += `
-            <line class="graph-spine-horizontal" x1="${spineX}" y1="${topAnchorY}" x2="${nextSpineX}" y2="${topAnchorY}"
-                  stroke="#666" stroke-width="2" stroke-linecap="round" opacity="0.95" />
-            <line class="graph-spine-horizontal" x1="${nextSpineX}" y1="${topAnchorY}" x2="${nextSpineX}" y2="${topInY}"
-                  stroke="#666" stroke-width="2" stroke-linecap="round" opacity="0.95" />
-            <line class="graph-spine-vertical" x1="${nextSpineX}" y1="${topInY}" x2="${nextSpineX}" y2="${Math.max(...nextInputs.map(p => p.y))}"
-                  stroke="#666" stroke-width="2" stroke-linecap="round" opacity="0.95" />
-          `;
-        }
-      }
     }
   })();
 
-  // Build inner SVG: start with spines so they render behind everything
+  // build inner SVG: start with spines so they render behind everything
   let inner = spineSvg;
 
-  // Raw->Smelter/BBM node-to-node edges (unchanged)
+  // raw->smelter edges (unchanged)
   for (const link of links) {
     const rawSource = nodeById.get(link.to);
     const consumer = nodeById.get(link.from);
     if (!rawSource || !consumer) continue;
-    const consumerIsBBM = (consumer.id === BBM_ID || consumer.label === BBM_ID);
+    const consumerIsBBM = (consumer.id === 'Basic Building Material' || consumer.label === 'Basic Building Material');
     if (rawSource.raw && rawSource.depth === minDepth && (consumer.building === 'Smelter' || consumerIsBBM)) {
       inner += `
         <line class="graph-edge graph-edge-raw" data-from="${escapeHtml(rawSource.id)}" data-to="${escapeHtml(consumer.id)}"
@@ -584,25 +534,25 @@ function renderGraph(nodes, links, rootItem) {
   }
 
   // --- Draw vertical connectors CENTER-TO-CENTER (draw BEFORE dots so dots sit on top) ---
-  // Output connectors: from bypass center to helper center
+  // Output connectors: from bypass center to RIGHT helper center
   for (const [depth, info] of needsOutputBypass.entries()) {
     inner += `
       <line class="bypass-to-spine bypass-output-connector" data-depth="${depth}"
-            x1="${info.x}" y1="${info.y}" x2="${info.x}" y2="${info.topHelperCenter.y}"
+            x1="${info.x}" y1="${info.y}" x2="${info.x}" y2="${info.helperCenter.y}"
             stroke="${isDark ? '#ddd' : '#444'}" stroke-width="1.4" stroke-linecap="butt" opacity="0.95" />
     `;
   }
 
-  // Input connectors: from top input helper center down to input bypass center
+  // Input connectors: from LEFT helper center down to input bypass center
   for (const [consumerDepth, pos] of needsInputBypass.entries()) {
     inner += `
       <line class="bypass-to-spine bypass-input-connector" data-depth="${consumerDepth}"
-            x1="${pos.x}" y1="${pos.topInputHelperCenter.y}" x2="${pos.x}" y2="${pos.y}"
+            x1="${pos.x}" y1="${pos.helperCenter.y}" x2="${pos.x}" y2="${pos.y}"
             stroke="${isDark ? '#ddd' : '#444'}" stroke-width="1.4" stroke-linecap="butt" opacity="0.95" />
     `;
   }
 
-  // --- Draw horizontal bypass connectors between bypass centers (under dots) ---
+  // Horizontal bypass connectors between bypass centers
   for (const [outDepth, outInfo] of needsOutputBypass.entries()) {
     for (const consumerDepth of outInfo.causingConsumers) {
       const inPos = needsInputBypass.get(consumerDepth);
@@ -624,40 +574,10 @@ function renderGraph(nodes, links, rootItem) {
 
     const hideAllAnchors = (node.raw && node.depth === minDepth);
     const isSmelter = (node.building === 'Smelter');
-    const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
+    const isBBM = (node.id === 'Basic Building Material' || node.label === 'Basic Building Material');
 
     const showLeftAnchor = !hideAllAnchors && node.hasInputAnchor && !isSmelter && !isBBM;
     const showRightAnchor = !hideAllAnchors && (node.hasOutputAnchor || isBBM) && (node.depth !== maxDepth);
-    const showTopAnchor = !hideAllAnchors && node.hasTopAnchor;
-
-    // Connectors from node edge to anchor dot (visual)
-    if (showLeftAnchor) {
-      const startX = node.x - nodeRadius;
-      const startY = node.y;
-      const end = anchorLeftPos(node);
-      inner += `
-        <line class="anchor-connector anchor-connector-left" x1="${startX}" y1="${startY}" x2="${end.x}" y2="${end.y}"
-              stroke="${isDark ? '#444' : '#666'}" stroke-width="1.8" stroke-linecap="round" opacity="0.95" />
-      `;
-    }
-    if (showRightAnchor) {
-      const startX = node.x + nodeRadius;
-      const startY = node.y;
-      const end = anchorRightPos(node);
-      inner += `
-        <line class="anchor-connector anchor-connector-right" x1="${startX}" y1="${startY}" x2="${end.x}" y2="${end.y}"
-              stroke="${isDark ? '#444' : '#666'}" stroke-width="1.8" stroke-linecap="round" opacity="0.95" />
-      `;
-    }
-    if (showTopAnchor) {
-      const startX = node.x;
-      const startY = node.y - nodeRadius;
-      const end = anchorTopPos(node);
-      inner += `
-        <line class="anchor-connector anchor-connector-top" x1="${startX}" y1="${startY}" x2="${end.x}" y2="${end.y}"
-              stroke="${isDark ? '#444' : '#666'}" stroke-width="1.8" stroke-linecap="round" opacity="0.95" />
-      `;
-    }
 
     // Node markup
     inner += `
@@ -680,7 +600,7 @@ function renderGraph(nodes, links, rootItem) {
         </text>
     `;
 
-    // Anchor dots (render after connectors so they visually sit on top and connectors meet them)
+    // Anchor dots (left/right) rendered after connectors so they sit on top
     if (showLeftAnchor) {
       const a = anchorLeftPos(node);
       inner += `
@@ -699,20 +619,11 @@ function renderGraph(nodes, links, rootItem) {
         </g>
       `;
     }
-    if (showTopAnchor) {
-      const a = anchorTopPos(node);
-      inner += `
-        <g class="anchor anchor-top" data-node="${escapeHtml(node.id)}" data-side="top" transform="translate(${a.x},${a.y})" tabindex="0" role="button" aria-label="Top anchor for ${escapeHtml(node.label)}">
-          <circle class="anchor-hit" cx="0" cy="0" r="${ANCHOR_HIT_RADIUS}" fill="transparent" pointer-events="all" />
-          <circle class="anchor-dot" cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="${isDark ? '#ffffff' : '#2c3e50'}" stroke="${isDark ? '#000' : '#fff'}" stroke-width="1.2" />
-        </g>
-      `;
-    }
 
     inner += `</g>`;
   }
 
-  // Render output bypass dots (on top of connectors)
+  // Render bypass dots (on top of connectors)
   const bypassFill = isDark ? '#ffffff' : '#2c3e50';
   for (const [depth, info] of needsOutputBypass.entries()) {
     inner += `
@@ -721,8 +632,6 @@ function renderGraph(nodes, links, rootItem) {
       </g>
     `;
   }
-
-  // Render input bypass dots
   for (const [consumerDepth, pos] of needsInputBypass.entries()) {
     inner += `
       <g class="bypass-dot bypass-input" data-depth="${consumerDepth}" transform="translate(${pos.x},${pos.y})" aria-hidden="false">
@@ -731,7 +640,7 @@ function renderGraph(nodes, links, rootItem) {
     `;
   }
 
-  // Final SVG wrapper
+  // final SVG wrapper
   const viewBoxX = Math.floor(contentX);
   const viewBoxY = Math.floor(contentY);
   const viewBoxW = Math.ceil(contentW);
