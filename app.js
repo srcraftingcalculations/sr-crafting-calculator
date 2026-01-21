@@ -828,7 +828,7 @@ function renderGraph(nodes, links, rootItem) {
         refY="5"
         markerWidth="6"
         markerHeight="6"
-        orient="auto">
+        orient="270">
         <path d="M0 10 L5 0 L10 10 Z" fill="${defaultLineColor}" />
       </marker>
     </defs>
