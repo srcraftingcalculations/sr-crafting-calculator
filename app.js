@@ -1003,90 +1003,90 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
   }
 
   function clampTranslation(proposedTx, proposedTy, proposedScale) {
-    const bbox = getContentBBox();            // in SVG coords
-    const view = getViewSizeInSvgCoords();    // in SVG coords
-
-    // If anything is missing, fall back to previous values
-    if (!bbox || !view || !svg || !svg.getScreenCTM) {
-      return { tx: proposedTx, ty: proposedTy };
-    }
-
-    // Convert bbox corners to screen (pixel) coordinates
-    const ctm = svg.getScreenCTM();
-    if (!ctm) return { tx: proposedTx, ty: proposedTy };
-
-    const topLeft = svg.createSVGPoint(); topLeft.x = bbox.x; topLeft.y = bbox.y;
-    const bottomRight = svg.createSVGPoint(); bottomRight.x = bbox.x + bbox.width; bottomRight.y = bbox.y + bbox.height;
-    const screenTL = topLeft.matrixTransform(ctm);
-    const screenBR = bottomRight.matrixTransform(ctm);
-
-    const contentScreenW = Math.abs(screenBR.x - screenTL.x) * proposedScale / (getContentBBox().width ? (getContentBBox().width / bbox.width) : 1);
-    const contentScreenH = Math.abs(screenBR.y - screenTL.y) * proposedScale / (getContentBBox().height ? (getContentBBox().height / bbox.height) : 1);
-
-    // Viewport in screen pixels
+    // get bbox in SVG coords
+    const bbox = getContentBBox();
     const rect = svg.getBoundingClientRect();
-    const viewScreenW = rect.width;
-    const viewScreenH = rect.height;
+    if (!bbox || !rect || !svg || !svg.getScreenCTM) return { tx: proposedTx, ty: proposedTy };
 
-    // Current transform maps svg->screen: screen = (svg * scale) + screenOffset
-    // We compute allowed screen offsets for the zoomLayer so content edges can reach view edges.
-    const marginPx = Math.max(24, Math.min(160, Math.round(Math.min(viewScreenW, viewScreenH) * 0.06)));
+    // margin in pixels (how close to the edge we allow content)
+    const marginPx = Math.max(12, Math.min(160, Math.round(Math.min(rect.width, rect.height) * 0.04)));
 
-    // When content larger than view: allow panning so edges can reach view edges
-    let minScreenTx, maxScreenTx, minScreenTy, maxScreenTy;
+    // helper: transform an SVG point (after applying proposed transform) to screen pixels
+    const toScreen = (svgX, svgY) => {
+      // apply the proposed zoomLayer transform in SVG coords
+      const transformedX = svgX * proposedScale + proposedTx;
+      const transformedY = svgY * proposedScale + proposedTy;
+      const p = svg.createSVGPoint();
+      p.x = transformedX; p.y = transformedY;
+      const screenP = p.matrixTransform(svg.getScreenCTM());
+      return { x: screenP.x, y: screenP.y };
+    };
 
-    if (contentScreenW > viewScreenW) {
-      minScreenTx = viewScreenW - contentScreenW - marginPx;
-      maxScreenTx = marginPx;
-    } else {
-      // center content but allow extra margin
-      const centerScreenTx = (viewScreenW - contentScreenW) / 2;
-      const extra = Math.max((viewScreenW - contentScreenW) * 0.25, marginPx);
-      minScreenTx = centerScreenTx - extra;
-      maxScreenTx = centerScreenTx + extra;
+    // compute screen positions of bbox corners after proposed transform
+    const topLeftScreen = toScreen(bbox.x, bbox.y);
+    const bottomRightScreen = toScreen(bbox.x + bbox.width, bbox.y + bbox.height);
+
+    const contentScreenLeft = Math.min(topLeftScreen.x, bottomRightScreen.x);
+    const contentScreenTop = Math.min(topLeftScreen.y, bottomRightScreen.y);
+    const contentScreenRight = Math.max(topLeftScreen.x, bottomRightScreen.x);
+    const contentScreenBottom = Math.max(topLeftScreen.y, bottomRightScreen.y);
+
+    // viewport in screen pixels
+    const viewW = rect.width;
+    const viewH = rect.height;
+
+    // compute required pixel adjustments to ensure edges are within [marginPx, view - marginPx]
+    let adjustX = 0;
+    if (contentScreenLeft > marginPx) {
+      // content is too far right; shift left
+      adjustX = marginPx - contentScreenLeft;
+    } else if (contentScreenRight < viewW - marginPx) {
+      // content is too far left; shift right
+      adjustX = (viewW - marginPx) - contentScreenRight;
     }
 
-    if (contentScreenH > viewScreenH) {
-      minScreenTy = viewScreenH - contentScreenH - marginPx;
-      maxScreenTy = marginPx;
-    } else {
-      const centerScreenTy = (viewScreenH - contentScreenH) / 2;
-      const extra = Math.max((viewScreenH - contentScreenH) * 0.35, marginPx);
-      minScreenTy = centerScreenTy - extra;
-      maxScreenTy = centerScreenTy + extra;
+    let adjustY = 0;
+    if (contentScreenTop > marginPx) {
+      // content too low; shift up
+      adjustY = marginPx - contentScreenTop;
+    } else if (contentScreenBottom < viewH - marginPx) {
+      // content too high; shift down
+      adjustY = (viewH - marginPx) - contentScreenBottom;
     }
 
-    // Convert proposedTx/proposedTy (SVG-space) into screen-space offsets for comparison.
-    // Compute a sample point (0,0) in SVG after applying proposed transform to see where it lands on screen.
-    const sample = svg.createSVGPoint(); sample.x = 0; sample.y = 0;
-    // Apply the same transform math used by zoomLayer: screen = (svgPoint * proposedScale) + screenOffset
-    // We need the screenOffset equivalent of (tx,ty). To get that, transform an SVG point at (tx,ty) to screen:
-    const txPoint = svg.createSVGPoint(); txPoint.x = proposedTx; txPoint.y = proposedTy;
-    const screenOffset = txPoint.matrixTransform(ctm); // approximate screen offset for tx/ty
+    // If no adjustment needed, return proposed values
+    if (adjustX === 0 && adjustY === 0) return { tx: proposedTx, ty: proposedTy };
 
-    // But because matrixTransform doesn't include our scale, we compute screen offsets directly:
-    // Map an SVG origin (0,0) to screen using CTM, then add proposedScale * 0 (no local scale), then add tx/ty in SVG scaled to screen:
-    const originScreen = sample.matrixTransform(ctm);
-    const svgToScreenScaleX = (screenBR.x - screenTL.x) / bbox.width;
-    const svgToScreenScaleY = (screenBR.y - screenTL.y) / bbox.height;
-    const proposedScreenTx = originScreen.x + proposedTx * svgToScreenScaleX * proposedScale;
-    const proposedScreenTy = originScreen.y + proposedTy * svgToScreenScaleY * proposedScale;
+    // Convert pixel adjustments back to SVG-space tx/ty deltas.
+    // Estimate svg->screen scale factors by mapping a unit SVG delta to screen pixels.
+    // Use bbox corners to compute approximate scale factors (fall back to 1 if degenerate).
+    const sampleA = svg.createSVGPoint(); sampleA.x = bbox.x; sampleA.y = bbox.y;
+    const sampleB = svg.createSVGPoint(); sampleB.x = bbox.x + 1; sampleB.y = bbox.y + 1;
+    const sA = sampleA.matrixTransform(svg.getScreenCTM());
+    const sB = sampleB.matrixTransform(svg.getScreenCTM());
+    const svgToScreenScaleX = Math.abs((sB.x - sA.x)) || 1;
+    const svgToScreenScaleY = Math.abs((sB.y - sA.y)) || 1;
 
-    // Clamp in screen space
-    const clampedScreenTx = Math.min(maxScreenTx, Math.max(minScreenTx, proposedScreenTx));
-    const clampedScreenTy = Math.min(maxScreenTy, Math.max(minScreenTy, proposedScreenTy));
+    // account for proposedScale: one SVG unit after scaling maps to svgToScreenScale * proposedScale pixels
+    const pxPerSvgX = svgToScreenScaleX * proposedScale;
+    const pxPerSvgY = svgToScreenScaleY * proposedScale;
 
-    // Convert clamped screen offsets back to SVG tx/ty
-    const invScaleX = (svgToScreenScaleX * proposedScale) || 1;
-    const invScaleY = (svgToScreenScaleY * proposedScale) || 1;
-    const clampedTx = (clampedScreenTx - originScreen.x) / invScaleX;
-    const clampedTy = (clampedScreenTy - originScreen.y) / invScaleY;
+    // convert pixel adjustments to SVG tx/ty deltas
+    const deltaTxSvg = adjustX / (pxPerSvgX || 1);
+    const deltaTySvg = adjustY / (pxPerSvgY || 1);
 
-    return { tx: isFinite(clampedTx) ? clampedTx : proposedTx, ty: isFinite(clampedTy) ? clampedTy : proposedTy };
+    // apply deltas to proposed tx/ty
+    const clampedTx = proposedTx + deltaTxSvg;
+    const clampedTy = proposedTy + deltaTySvg;
+
+    // final sanity: if values are finite, return them; otherwise return proposed
+    return {
+      tx: Number.isFinite(clampedTx) ? clampedTx : proposedTx,
+      ty: Number.isFinite(clampedTy) ? clampedTy : proposedTy
+    };
   }
 
   function applyTransform() {
-    // clamp current tx/ty before applying
     const clamped = clampTranslation(tx, ty, scale);
     tx = clamped.tx;
     ty = clamped.ty;
