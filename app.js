@@ -376,22 +376,39 @@ function computeDepthsFromTiers(chain, rootItem) {
     }
   }
 
-  // 4) Place Helium-3 and Sulphur one column left of their earliest consumer
+  // 4) LEFT_OF_CONSUMER_RAWS: place these raws one column left of their earliest consumer.
+  //    Also implement the "first-time input" rule: if the raw exists only because it
+  //    is an input to a consumer whose computed depth is > 0, move the raw to consumerDepth - 1.
   for (const rawName of LEFT_OF_CONSUMER_RAWS) {
     if (!(rawName in chain)) continue;
+
+    // Find earliest consumer depth for this raw
     let minConsumerDepth = Infinity;
+    let anyConsumerFound = false;
     for (const [consumerName, consumerData] of Object.entries(chain || {})) {
       const inputs = consumerData.inputs || {};
       if (Object.prototype.hasOwnProperty.call(inputs, rawName)) {
+        anyConsumerFound = true;
         const d = Number(depths[consumerName] ?? (Number(TIERS?.[consumerName] ?? 0)));
         if (Number.isFinite(d) && d < minConsumerDepth) minConsumerDepth = d;
       }
     }
+
+    if (!anyConsumerFound) {
+      // No consumers in this chain; keep existing depth (or default 0)
+      depths[rawName] = Math.max(0, depths[rawName] ?? 0);
+      continue;
+    }
+
     if (minConsumerDepth === Infinity) {
       depths[rawName] = Math.max(0, depths[rawName] ?? 0);
-    } else {
-      depths[rawName] = Math.max(0, Math.floor(minConsumerDepth) - 1);
+      continue;
     }
+
+    // If the earliest consumer is at depth > 0, place the raw immediately left of it.
+    // This enforces the "raw goes directly before the output" rule for first-time inputs.
+    const targetDepth = Math.max(0, Math.floor(minConsumerDepth) - 1);
+    depths[rawName] = targetDepth;
   }
 
   // 5) Normalize to integers and clamp non-negative before deciding shifts
@@ -408,7 +425,7 @@ function computeDepthsFromTiers(chain, rootItem) {
   if (rawItems.length > 0) {
     const anyRawAtZero = rawItems.some(r => depths[r] === 0);
     if (anyRawAtZero) {
-      // Force all raw items to depth 0
+      // Force all raw items to depth 0 (preserve forced raw ores)
       for (const r of rawItems) depths[r] = 0;
 
       // Shift all non-raw items one column to the right (depth += 1)
