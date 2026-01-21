@@ -890,7 +890,7 @@ function renderGraph(nodes, links, rootItem) {
   }
 
   // -------------------------------
-  // OUTPUT SPINES (vertical + arrow)
+  // OUTPUT SPINES (per-segment)
   // -------------------------------
   const byX = {};
   for (const h of rightHelpers) {
@@ -902,27 +902,35 @@ function renderGraph(nodes, links, rootItem) {
   for (const [x, helpers] of Object.entries(byX)) {
     if (helpers.length < 2) continue;
 
-    const ys = helpers.map(h => h.y);
-    const y1 = Math.min(...ys);
-    const y2 = Math.max(...ys);
+    // sort top → bottom
+    helpers.sort((a, b) => a.y - b.y);
 
-    const midY = (y1 + y2) / 2 + OUTPUT_ARROW_OFFSET_Y;
+    for (let i = 0; i < helpers.length - 1; i++) {
+      const y1 = helpers[i].y;
+      const y2 = helpers[i + 1].y;
 
-    inner += `
-      <line
-        x1="${x}" y1="${y1}"
-        x2="${x}" y2="${y2}"
-        stroke="${defaultLineColor}"
-        stroke-width="1.6"/>
+      // draw ONLY this segment
+      inner += `
+        <line
+          x1="${x}" y1="${y1}"
+          x2="${x}" y2="${y2}"
+          stroke="${defaultLineColor}"
+          stroke-width="1.6" />
+      `;
 
-      <polygon
-        points="
-          ${x},${midY - OUTPUT_ARROW_SIZE}
-          ${x - OUTPUT_ARROW_SIZE},${midY + OUTPUT_ARROW_SIZE}
-          ${x + OUTPUT_ARROW_SIZE},${midY + OUTPUT_ARROW_SIZE}
-        "
-        fill="${defaultLineColor}" />
-    `;
+      // arrow centered on THIS segment
+      const midY = (y1 + y2) / 2 - 10; // lift to avoid labels
+
+      inner += `
+        <polygon
+          points="
+            ${x},${midY - 6}
+            ${x - 6},${midY + 6}
+            ${x + 6},${midY + 6}
+          "
+          fill="${defaultLineColor}" />
+      `;
+    }
   }
 
   // -------------------------------
