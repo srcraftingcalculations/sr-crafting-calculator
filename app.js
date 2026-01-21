@@ -1215,7 +1215,8 @@ function renderTable(chainObj, rootItem, rate) {
   graphArea.innerHTML = graphHTML;
   const wrapper = graphArea.querySelector(".graphWrapper");
   const resetBtn = document.querySelector('#resetViewBtn');
-  setupGraphZoom(wrapper, { autoFit: true, resetButtonEl: resetBtn });
+  // ensure zoom setup runs after paint
+  requestAnimationFrame(() => setupGraphZoom(wrapper, { autoFit: true, resetButtonEl: resetBtn }));
 
   attachNodePointerHandlers(wrapper);
 
