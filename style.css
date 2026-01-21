@@ -1,49 +1,46 @@
 :root {
-  /* Graph / label variables (used by renderGraph SVG via var(--...)) */
-  --line-color: #444444;
-  --spine-color: #666666;
-  --raw-edge-color: #333333;
-  --label-box-fill: rgba(255,255,255,0.92);
-  --label-box-stroke: rgba(0,0,0,0.06);
-  --label-text-fill: #111111;
-  --label-text-stroke: #ffffff;
-  --label-text-stroke-width: 0.6;
-  --anchor-dot-fill: #2c3e50;
-  --anchor-dot-stroke: #ffffff;
-  --bypass-fill: #2c3e50;
-  --bypass-stroke: #ffffff;
+/* Graph / label variables (used by renderGraph SVG via var(--...)) */
+--line-color: #444444;
+--spine-color: #666666;
+--raw-edge-color: #333333;
+--label-box-fill: rgba(255,255,255,0.92);
+--label-box-stroke: rgba(0,0,0,0.06);
+--label-text-fill: #111111;
+--label-text-stroke: #ffffff;
+--label-text-stroke-width: 0.6;
+--anchor-dot-fill: #2c3e50;
+--anchor-dot-stroke: #ffffff;
+--bypass-fill: #2c3e50;
+--bypass-stroke: #ffffff;
 
-  /* UI colors */
-  --panel-bg: #fff;
-  --text: #111;
-  --muted-border: #cfcfcf;
-  --accent: #72a4f2;
+/* UI colors */
+--panel-bg: #fff;
+--text: #111;
+--muted-border: #cfcfcf;
+--accent: #72a4f2;
 }
 
 /* Dark theme overrides (toggle by adding .dark to <html> or <body>) */
 :root.dark,
 body.dark {
-  --line-color: #dcdcdc;
-  --spine-color: #bdbdbd;
-  --raw-edge-color: #333333;
-  --label-box-fill: rgba(0,0,0,0.88);
-  --label-box-stroke: rgba(255,255,255,0.06);
-  --label-text-fill: #ffffff;
-  --label-text-stroke: #000000;
-  --label-text-stroke-width: 1.0;
-  --anchor-dot-fill: #ffffff;
-  --anchor-dot-stroke: #000000;
-  --bypass-fill: #ffffff;
-  --bypass-stroke: #000000;
+--line-color: #dcdcdc;
+--spine-color: #bdbdbd;
+--raw-edge-color: #333333;
+--label-box-fill: rgba(0,0,0,0.88);
+--label-box-stroke: rgba(255,255,255,0.06);
+--label-text-fill: #ffffff;
+--label-text-stroke: #000000;
+--label-text-stroke-width: 1.0;
+--anchor-dot-fill: #ffffff;
+--anchor-dot-stroke: #000000;
+--bypass-fill: #ffffff;
+--bypass-stroke: #000000;
 
-  --panel-bg: #111827;
-  --text: #e6eef8;
-  --muted-border: #2b3440;
-  --accent: #4aa3ff;
+--panel-bg: #111827;
+--text: #e6eef8;
+--muted-border: #2b3440;
+--accent: #4aa3ff;
 }
-/* ============================
-   Full stylesheet — centered node numbers
-   ============================ */
 
 /* ============================
   Base Layout
@@ -52,8 +49,7 @@ body {
 font-family: Arial, Helvetica, sans-serif;
 margin: 20px;
 background: #f5f5f5;
-  color: var(--text, #222);
-  color: #222;
+color: var(--text, #222);
 transition: background 0.25s ease, color 0.25s ease;
 }
 
@@ -120,18 +116,14 @@ justify-content: center;
 margin-right: 8px;
 padding: 6px 10px;
 border-radius: 6px;
-  border: 1px solid var(--muted-border);
-  background: var(--panel-bg);
-  color: var(--text);
-  border: 1px solid var(--muted-border, #cfcfcf);
-  background: var(--panel-bg, #fff);
-  color: var(--text, #111);
+border: 1px solid var(--muted-border);
+background: var(--panel-bg);
+color: var(--text);
 font-weight: 600;
 cursor: pointer;
 transition: background .12s, transform .08s;
 }
 .info-bubble:focus { outline: 2px solid var(--accent); transform: translateY(-1px); }
-.info-bubble:focus { outline: 2px solid var(--accent, #72a4f2); transform: translateY(-1px); }
 
 /* Info panel */
 .info-panel {
@@ -142,12 +134,9 @@ max-width: calc(100% - 32px);
 padding: 14px;
 border-radius: 8px;
 box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-  background: var(--panel-bg);
-  color: var(--text);
-  border: 1px solid var(--muted-border);
-  background: var(--panel-bg, #fff);
-  color: var(--text, #111);
-  border: 1px solid var(--muted-border, #e6e6e6);
+background: var(--panel-bg);
+color: var(--text);
+border: 1px solid var(--muted-border);
 display: none;
 font-size: 14px;
 line-height: 1.4;
@@ -162,8 +151,7 @@ margin-top: 10px;
 padding: 6px 10px;
 border-radius: 6px;
 border: none;
-  background: var(--accent);
-  background: var(--accent, #72a4f2);
+background: var(--accent);
 color: #fff;
 cursor: pointer;
 font-weight: 600;
@@ -171,8 +159,7 @@ font-weight: 600;
 
 /* Info panel link styling */
 .info-panel a {
-  color: var(--accent);
-  color: var(--accent, #72a4f2);
+color: var(--accent);
 text-decoration: underline;
 font-weight: 600;
 }
@@ -180,14 +167,6 @@ font-weight: 600;
 /* Small responsive tweak: keep panel readable on narrow screens */
 @media (max-width: 520px) {
 .info-panel { width: calc(100% - 24px); left: 12px !important; right: 12px !important; }
-}
-
-/* Dark mode variables example (if you toggle a .dark class on body) */
-body.dark {
-  --panel-bg: #111827;
-  --text: #e6eef8;
-  --muted-border: #2b3440;
-  --accent: #4aa3ff;
 }
 
 /* ============================
@@ -218,10 +197,8 @@ button:hover { background: #dcdcdc; }
 table {
 width: 100%;
 border-collapse: collapse;
-  background: var(--panel-bg);
-  color: var(--text);
-  background: #fff;
-  color: #222;
+background: var(--panel-bg);
+color: var(--text);
 margin-top: 20px;
 }
 table th {
@@ -257,20 +234,18 @@ font-weight: 700;
   Graph area + wrapper
   ============================ */
 #graphArea { margin-top: 8px; }
-#graphArea svg text { fill: #333; }
 
 .graphWrapper {
 box-sizing: border-box;
 width: 100%;
 max-width: 100%;
 max-height: calc(100vh - 220px);
-  overflow: hidden
-  overflow: hidden; /* panning via transform */
+overflow: hidden; /* panning via transform */
 padding: 8px;
 padding-top: 12px;
 border-radius: 6px;
 background: rgba(255,255,255,0.02);
-  transition: background 160ms ease;
+transition: background 160ms ease;
 }
 
 .graphWrapper .graphViewport {
@@ -308,20 +283,12 @@ font-weight: 700;
 letter-spacing: 0.2px;
 text-anchor: middle;
 paint-order: stroke;
-  stroke-width: var(--label-text-stroke-width);
-  stroke-width: 0.6px;
+stroke-width: var(--label-text-stroke-width);
 stroke-linejoin: round;
-  fill: var(--label-text-fill);
-  fill: currentColor;
+fill: var(--label-text-fill);
 }
 
 /* Numbers inside nodes: multiple techniques combined for reliable centering */
-/* Numbers inside nodes: multiple techniques combined for reliable centering
-   - horizontal centering via text-anchor: middle
-   - vertical centering via dominant-baseline and alignment-baseline
-   - small transform nudge to correct font metric differences
-   - use transform-box and transform-origin so translateY affects glyphs correctly
-*/
 .graphSVG text.nodeNumber {
 font-family: "Segoe UI", Roboto, Arial, sans-serif;
 font-size: 13px;
@@ -333,22 +300,16 @@ baseline-shift: 0;                 /* ensure no extra shift */
 paint-order: stroke;
 stroke-width: 0.6px;
 stroke-linejoin: round;
-  fill: var(--label-text-fill);
-  fill: currentColor;
+fill: var(--label-text-fill);
 
 /* transform-based nudge — very small, tweak if needed */
 transform-box: fill-box;
 transform-origin: center;
-  transform: translateY(0.08em);     /* tiny nudge to visually center; adjust if needed */
-  transform: translateY(0.08em);     /* tiny nudge to visually center; adjust to 0.00–0.18em if needed */
+transform: translateY(0.08em);     /* tiny nudge to visually center; adjust if needed */
 }
-
-/* If your renderGraph sets dy on the <text> element, the dy will combine with this transform.
-   If you prefer to rely on dy instead, set transform: none; and use dy=".35em" in the markup. */
 
 /* Ensure stroke doesn't push glyphs off visually */
 .graphSVG text { paint-order: stroke; }
-.graphSVG text { stroke-width: 0.6px; paint-order: stroke; }
 
 /* Circles and rects should not scale stroke with transforms */
 .graphSVG circle,
@@ -365,8 +326,7 @@ vector-effect: non-scaling-stroke;
 .graphWrapper::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 6px; }
 
 /* ============================
-   Dark mode body-level tweaks
-   Dark mode
+  Dark mode body-level tweaks
   ============================ */
 body.dark {
 background: #121212;
@@ -379,7 +339,6 @@ body.dark table td { border: 1px solid #333; }
 
 /* Make sure any fallback text color in #graphArea is neutral */
 #graphArea svg text { fill: var(--label-text-fill); }
-body.dark #graphArea svg text { fill: #ddd; }
 
 /* ============================
   Toasts & misc
@@ -412,5 +371,4 @@ transition: opacity 0.25s ease, transform 0.25s ease;
 /* Reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
 * { transition: none !important; }
-}
 }
