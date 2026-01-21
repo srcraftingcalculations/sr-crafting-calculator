@@ -915,15 +915,15 @@ function renderGraph(nodes, links, rootItem) {
     const bottomAnchorY = Math.max(...ysAnch);
     const spineX = outputAnchors[0].x;
 
-    // OUTPUT GROUPING VERTICAL SPINE (UP ARROW – FIXED)
+    // OUTPUT GROUPING VERTICAL SPINE (WITH UP ARROW AT FLOW EXIT)
     if (bottomAnchorY > topAnchorY) {
       spineSvg += `
         <line
           class="graph-spine-vertical graph-spine-output-group"
           x1="${spineX}"
-          y1="${topAnchorY}"
+          y1="${bottomAnchorY}"
           x2="${spineX}"
-          y2="${bottomAnchorY}"
+          y2="${topAnchorY}"
           stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
           stroke-width="2"
           marker-end="url(#spineArrowUp)"
