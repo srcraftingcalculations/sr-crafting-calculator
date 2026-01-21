@@ -821,33 +821,41 @@ function renderGraph(nodes, links, rootItem) {
   const bypassOutputDepths = new Set();
   const bypassInputDepths  = new Set();
 
-  // Build adjacency from recipe table (semantic dependencies)
-  const consumersByItem = new Map(); // sourceId -> Set of consumerIds
+  // Build adjacency from existing rendered links
+  // NOTE: links are consumer -> input, so traversal goes rightward by reversing
+  const forwardAdj = new Map(); // sourceId -> Set(targetId)
 
-  for (const link of recipeLinks) { // NOT render links
-    if (!consumersByItem.has(link.source)) {
-      consumersByItem.set(link.source, new Set());
-    }
-    consumersByItem.get(link.source).add(link.target);
+  for (const { from, to } of links) {
+    // to is an input; from is the consumer (to the right)
+    if (!forwardAdj.has(to)) forwardAdj.set(to, new Set());
+    forwardAdj.get(to).add(from);
   }
 
-  // For each source item, find deepest semantic consumer
-  for (const [sourceId, consumerIds] of consumersByItem.entries()) {
-    const from = nodes.find(n => n.id === sourceId);
-    if (!from) continue;
+  // DFS to find deepest reachable consumer depth
+  function maxReachDepth(startId, visited = new Set()) {
+    if (visited.has(startId)) return -Infinity;
+    visited.add(startId);
 
-    let maxDepth = from.depth;
+    const node = nodes.find(n => n.id === startId);
+    if (!node) return -Infinity;
 
-    for (const targetId of consumerIds) {
-      const to = nodes.find(n => n.id === targetId);
-      if (!to) continue;
-      maxDepth = Math.max(maxDepth, to.depth);
+    let max = node.depth;
+    const next = forwardAdj.get(startId);
+    if (!next) return max;
+
+    for (const nid of next) {
+      max = Math.max(max, maxReachDepth(nid, visited));
     }
 
-    // semantic bypass: consumer exists beyond adjacent column
-    if (maxDepth > from.depth + 1) {
-      bypassOutputDepths.add(from.depth);
-      bypassInputDepths.add(maxDepth);
+    return max;
+  }
+
+  // Evaluate bypasses
+  for (const node of nodes) {
+    const deepest = maxReachDepth(node.id);
+    if (deepest > node.depth + 1) {
+      bypassOutputDepths.add(node.depth);
+      bypassInputDepths.add(deepest);
     }
   }
 
