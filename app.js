@@ -999,6 +999,7 @@ function renderGraph(nodes, links, rootItem) {
       } else if (b.raw && b.depth === minDepth) {
         src = b; dst = a;
       } else {
+        // neither endpoint qualifies as a raw in the far-left column; skip
         continue;
       }
 
@@ -1014,7 +1015,7 @@ function renderGraph(nodes, links, rootItem) {
       const stroke = isRawDirect ? rawLineColor : lineColor;
       const width = isRawDirect ? 2.6 : 1.6;
 
-      // Draw the line (no SVG marker-end). Add a midpoint arrow manually.
+      // Draw the line and add a midpoint arrow
       inner += `<line class="graph-edge direct-node-line" data-from="${escapeHtml(src.id)}" data-to="${escapeHtml(dst.id)}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" />`;
       inner += arrowAtMidpoint(x1, y1, x2, y2, stroke, 7);
     }
