@@ -815,41 +815,55 @@ function renderGraph(nodes, links, rootItem) {
     });
   }
 
-  // ---------------------------------
-  // Bypass detection (DOTS ONLY)
-  // ---------------------------------
-  const bypassOutputDepths = new Set();
-  const bypassInputDepths = new Set();
+    // ---------------------------------
+    // Bypass detection (DOTS ONLY)
+    // ---------------------------------
 
-  // map output node id → deepest consuming column
-  const maxConsumerDepthBySource = new Map();
+    const bypassOutputDepths = new Set();
+    const bypassInputDepths  = new Set();
 
-  // first pass: find deepest consumer per output
-  for (const link of links) {
-    const from = nodes.find(n => n.id === link.source);
-    const to   = nodes.find(n => n.id === link.target);
-    if (!from || !to) continue;
-
-    const prev = maxConsumerDepthBySource.get(from.id) ?? -Infinity;
-    maxConsumerDepthBySource.set(from.id, Math.max(prev, to.depth));
-  }
-
-  // second pass: mark bypass depths
-  for (const [sourceId, maxDepth] of maxConsumerDepthBySource.entries()) {
-    const from = nodes.find(n => n.id === sourceId);
-    if (!from) continue;
-
-    if (maxDepth > from.depth + 1) {
-      bypassOutputDepths.add(from.depth);
-      bypassInputDepths.add(maxDepth);
+    // group nodes by depth, sorted top → bottom
+    const nodesByDepth = new Map();
+    for (const n of nodes) {
+      if (!nodesByDepth.has(n.depth)) nodesByDepth.set(n.depth, []);
+      nodesByDepth.get(n.depth).push(n);
     }
-  }
+    for (const col of nodesByDepth.values()) {
+      col.sort((a, b) => a.y - b.y);
+    }
 
-  // vertical padding for bypass dots
-  const bypassExtraTop =
-    (bypassOutputDepths.size || bypassInputDepths.size)
-      ? BYPASS_Y_OFFSET + BYPASS_RADIUS + 12
-      : 0;
+    // detect visual bypasses
+    for (const link of links) {
+      const from = nodes.find(n => n.id === link.source);
+      const to   = nodes.find(n => n.id === link.target);
+      if (!from || !to) continue;
+
+      // must flow left → right
+      if (to.depth <= from.depth) continue;
+
+      // check every intermediate column for vertical blockers
+      for (let d = from.depth + 1; d <= to.depth; d++) {
+        const col = nodesByDepth.get(d);
+        if (!col) continue;
+
+        const blocked = col.some(n =>
+          n.y > Math.min(from.y, to.y) &&
+          n.y < Math.max(from.y, to.y)
+        );
+
+        if (blocked) {
+          bypassOutputDepths.add(from.depth);
+          bypassInputDepths.add(to.depth);
+          break;
+        }
+      }
+    }
+
+    // vertical padding for bypass dots (60px above helper dot)
+    const bypassExtraTop =
+      (bypassOutputDepths.size || bypassInputDepths.size)
+        ? 60 + BYPASS_RADIUS + 12
+        : 0;
 
   // ---------------------------------
   // ViewBox
