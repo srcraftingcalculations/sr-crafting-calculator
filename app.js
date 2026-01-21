@@ -912,7 +912,23 @@ function renderGraph(nodes, links, rootItem) {
 
     const ysAnch = outputAnchors.map(p => p.y);
     const topAnchorY = Math.min(...ysAnch);
+    const bottomAnchorY = Math.max(...ysAnch);
     const spineX = outputAnchors[0].x;
+
+    // ✅ OUTPUT GROUPING VERTICAL SPINE (NO ARROW)
+    if (bottomAnchorY > topAnchorY) {
+      spineSvg += `
+        <line
+          class="graph-spine-vertical graph-spine-output-group"
+          x1="${spineX}"
+          y1="${topAnchorY}"
+          x2="${spineX}"
+          y2="${bottomAnchorY}"
+          stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
+          stroke-width="2"
+        />
+      `;
+    }
 
     // Look ahead to next column
     if (i + 1 >= depthsSorted.length) continue;
@@ -934,22 +950,7 @@ function renderGraph(nodes, links, rootItem) {
     const bottomInY = Math.max(...nextInputs.map(p => p.y));
     const nextSpineX = nextInputs[0].x;
 
-    // Vertical output grouping spine (NO arrow)
-    if (bottomAnchorY > topAnchorY) {
-      spineSvg += `
-        <line
-          class="graph-spine-vertical graph-spine-output-group"
-          x1="${spineX}"
-          y1="${topAnchorY}"
-          x2="${spineX}"
-          y2="${bottomAnchorY}"
-          stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
-          stroke-width="2"
-        />
-      `;
-    }
-
-    // Horizontal flow →
+    // → Horizontal flow spine (WITH arrow)
     spineSvg += `
       <line
         class="graph-spine-horizontal"
@@ -963,7 +964,7 @@ function renderGraph(nodes, links, rootItem) {
       />
     `;
 
-    // Vertical drop ↓ (arrow)
+    // ↓ Vertical drop into next column (WITH arrow)
     spineSvg += `
       <line
         class="graph-spine-vertical"
@@ -977,7 +978,7 @@ function renderGraph(nodes, links, rootItem) {
       />
     `;
 
-    // Vertical grouping (no arrow)
+    // Input grouping vertical spine (NO arrow)
     spineSvg += `
       <line
         class="graph-spine-vertical"
