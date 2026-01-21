@@ -450,9 +450,9 @@ function renderGraph(nodes, links, rootItem) {
     shortestGap = nodeRadius + ANCHOR_OFFSET;
   }
 
-  // --- Compute output bypass dots (capture exact top helper anchor coords) ---
+  // --- Compute output bypass dots (canonical helper-edge reference) ---
   const depthsSorted = Object.keys(columns).map(d => Number(d)).sort((a, b) => a - b);
-  const needsOutputBypass = new Map(); // depth -> { x, y, topHelper:{x,y}, causingConsumers:Set }
+  const needsOutputBypass = new Map(); // depth -> { x, y, helperEdgeY, topHelperCenter, causingConsumers:Set }
 
   for (const depth of depthsSorted) {
     const colNodes = columns[depth] || [];
@@ -495,7 +495,7 @@ function renderGraph(nodes, links, rootItem) {
   }
 
   // --- Compute input bypass dots (matching Y to output bypass) and capture top input helper coords ---
-  const needsInputBypass = new Map(); // consumerDepth -> { x, y, topInputHelper:{x,y}, helperEdgeY }
+  const needsInputBypass = new Map(); // consumerDepth -> { x, y, topInputHelperCenter, helperEdgeY }
   for (const [outDepth, info] of needsOutputBypass.entries()) {
     for (const consumerDepth of info.causingConsumers) {
       const consumerCol = columns[consumerDepth] || [];
