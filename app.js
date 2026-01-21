@@ -926,7 +926,7 @@ function renderGraph(nodes, links, rootItem) {
           y2="${topAnchorY}"
           stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
           stroke-width="2"
-          marker-end="url(#arrow-up)"
+          marker-end="url(#spineArrowUp)"
         />
       `;
     }
@@ -951,13 +951,15 @@ function renderGraph(nodes, links, rootItem) {
     const bottomInY = Math.max(...nextInputs.map(p => p.y));
     const nextSpineX = nextInputs[0].x;
 
-    // → Horizontal flow spine (WITH arrow)
+    const hX1 = Math.min(spineX, nextSpineX);
+    const hX2 = Math.max(spineX, nextSpineX);
+
     spineSvg += `
       <line
         class="graph-spine-horizontal"
-        x1="${spineX}"
+        x1="${hX1}"
         y1="${topAnchorY}"
-        x2="${nextSpineX}"
+        x2="${hX2}"
         y2="${topAnchorY}"
         stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
         stroke-width="2"
