@@ -762,6 +762,7 @@ function renderGraph(nodes, links, rootItem) {
 
   const BYPASS_RADIUS = 5;
   const BYPASS_Y_OFFSET = 34;
+  const BYPASS_X_INSET = 10;
 
   function roundCoord(v) { return Math.round(v * 100) / 100; }
 
@@ -815,41 +816,36 @@ function renderGraph(nodes, links, rootItem) {
   }
 
   // ---------------------------------
-  // Bypass detection (LOGICAL)
+  // Bypass detection (DOTS ONLY)
   // ---------------------------------
   const bypassOutputDepths = new Set();
-  const bypassInputDepths  = new Set();
+  const bypassInputDepths = new Set();
 
-  const consumes = new Map();
+  // map output node id → deepest consuming column
+  const maxConsumerDepthBySource = new Map();
+
+  // first pass: find deepest consumer per output
   for (const link of links) {
-    if (!consumes.has(link.source)) consumes.set(link.source, []);
-    consumes.get(link.source).push(link.target);
+    const from = nodes.find(n => n.id === link.source);
+    const to   = nodes.find(n => n.id === link.target);
+    if (!from || !to) continue;
+
+    const prev = maxConsumerDepthBySource.get(from.id) ?? -Infinity;
+    maxConsumerDepthBySource.set(from.id, Math.max(prev, to.depth));
   }
 
-  function findMaxDepth(startId, visited = new Set()) {
-    if (visited.has(startId)) return -Infinity;
-    visited.add(startId);
+  // second pass: mark bypass depths
+  for (const [sourceId, maxDepth] of maxConsumerDepthBySource.entries()) {
+    const from = nodes.find(n => n.id === sourceId);
+    if (!from) continue;
 
-    const node = nodes.find(n => n.id === startId);
-    if (!node) return -Infinity;
-
-    let maxDepth = node.depth;
-    const next = consumes.get(startId) || [];
-    for (const id of next) {
-      maxDepth = Math.max(maxDepth, findMaxDepth(id, visited));
-    }
-    return maxDepth;
-  }
-
-  for (const node of nodes) {
-    if (!node.hasOutputAnchor) continue;
-    const maxDepth = findMaxDepth(node.id);
-    if (maxDepth > node.depth + 1) {
-      bypassOutputDepths.add(node.depth);
+    if (maxDepth > from.depth + 1) {
+      bypassOutputDepths.add(from.depth);
       bypassInputDepths.add(maxDepth);
     }
   }
 
+  // vertical padding for bypass dots
   const bypassExtraTop =
     (bypassOutputDepths.size || bypassInputDepths.size)
       ? BYPASS_Y_OFFSET + BYPASS_RADIUS + 12
@@ -863,9 +859,14 @@ function renderGraph(nodes, links, rootItem) {
   const minY = Math.min(...ys), maxY = Math.max(...ys);
 
   const contentX = minX - nodeRadius - GRAPH_CONTENT_PAD;
-  const contentY = minY - nodeRadius - GRAPH_CONTENT_PAD - bypassExtraTop;
+  const contentY =
+    minY - nodeRadius - GRAPH_CONTENT_PAD - bypassExtraTop;
   const contentW = (maxX - minX) + nodeRadius*2 + GRAPH_CONTENT_PAD*2;
-  const contentH = (maxY - minY) + nodeRadius*2 + GRAPH_CONTENT_PAD*2 + bypassExtraTop;
+  const contentH =
+    (maxY - minY) +
+    nodeRadius * 2 +
+    GRAPH_CONTENT_PAD * 2 +
+    bypassExtraTop;
 
   const defaultLineColor = isDarkMode() ? '#dcdcdc' : '#444';
 
@@ -877,10 +878,10 @@ function renderGraph(nodes, links, rootItem) {
   const rightHelpers = [];
   const leftHelpers = [];
 
-  const minDepth = Math.min(...nodes.map(n=>n.depth));
-  const maxDepth = Math.max(...nodes.map(n=>n.depth));
-
   for (const node of nodes) {
+    const minDepth = Math.min(...nodes.map(n=>n.depth));
+    const maxDepth = Math.max(...nodes.map(n=>n.depth));
+
     if (node.hasOutputAnchor && node.depth !== maxDepth) {
       const a = anchorRightPos(node);
       rightHelpers.push({ ...a, depth: node.depth });
@@ -889,8 +890,11 @@ function renderGraph(nodes, links, rootItem) {
         <line x1="${node.x + nodeRadius}" y1="${node.y}"
               x2="${a.x}" y2="${a.y}"
               stroke="${defaultLineColor}" stroke-width="1.2" />
-        <circle cx="${a.x}" cy="${a.y}" r="${ANCHOR_RADIUS}"
-                fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2"/>
+        <circle cx="${a.x}" cy="${a.y}"
+                r="${ANCHOR_RADIUS}"
+                fill="var(--bypass-fill)"
+                stroke="var(--bypass-stroke)"
+                stroke-width="1.2"/>
       `;
     }
 
@@ -902,43 +906,215 @@ function renderGraph(nodes, links, rootItem) {
         <line x1="${node.x - nodeRadius}" y1="${node.y}"
               x2="${a.x}" y2="${a.y}"
               stroke="${defaultLineColor}" stroke-width="1.2" />
-        <circle cx="${a.x}" cy="${a.y}" r="${ANCHOR_RADIUS}"
-                fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2"/>
+        <circle cx="${a.x}" cy="${a.y}"
+                r="${ANCHOR_RADIUS}"
+                fill="var(--bypass-fill)"
+                stroke="var(--bypass-stroke)"
+                stroke-width="1.2"/>
+      `;
+    }
+  }
+
+    // top-most node per column
+    const topBypassNodeByDepth = {};
+
+    // outputs
+    for (const link of links) {
+      const from = nodes.find(n => n.id === link.source);
+      const to   = nodes.find(n => n.id === link.target);
+      if (!from || !to) continue;
+
+      if (to.depth - from.depth > 1) {
+        const dOut = from.depth;
+        const dIn  = to.depth;
+
+        if (!topBypassNodeByDepth[dOut] || from.y < topBypassNodeByDepth[dOut].y) {
+          topBypassNodeByDepth[dOut] = from;
+        }
+
+        if (!topBypassNodeByDepth[dIn] || to.y < topBypassNodeByDepth[dIn].y) {
+          topBypassNodeByDepth[dIn] = to;
+        }
+      }
+    }
+
+  // ---------------------------------
+  // Vertical output spines
+  // ---------------------------------
+  const byX = {};
+  for (const h of rightHelpers) {
+    if (!byX[h.x]) byX[h.x] = [];
+    byX[h.x].push(h);
+  }
+
+  for (const helpers of Object.values(byX)) {
+    if (helpers.length < 2) continue;
+    helpers.sort((a,b)=>a.y - b.y);
+
+    for (let i = 0; i < helpers.length - 1; i++) {
+      const x = helpers[i].x;
+      const y1 = helpers[i].y;
+      const y2 = helpers[i + 1].y;
+
+      inner += `
+        <line x1="${x}" y1="${y1}"
+              x2="${x}" y2="${y2}"
+              stroke="${defaultLineColor}" stroke-width="1.6" />
+      `;
+
+      const midY = (y1 + y2) / 2;
+      const arrowY =
+        midY +
+        ARROW_GAP_FROM_LABEL -
+        ARROW_CENTER_ADJUST -
+        UP_ARROW_EXTRA_LIFT;
+
+      inner += `
+        <polygon
+          points="
+            ${x},${arrowY - ARROW_HEIGHT}
+            ${x - ARROW_HALF_WIDTH},${arrowY}
+            ${x + ARROW_HALF_WIDTH},${arrowY}
+          "
+          fill="${defaultLineColor}" />
       `;
     }
   }
 
   // ---------------------------------
-  // BYPASS HELPER DOTS
+  // Vertical input spines
   // ---------------------------------
-  const topRight = {};
-  const topLeft  = {};
-
-  for (const h of rightHelpers)
-    if (!topRight[h.depth] || h.y < topRight[h.depth].y) topRight[h.depth] = h;
-
-  for (const h of leftHelpers)
-    if (!topLeft[h.depth] || h.y < topLeft[h.depth].y) topLeft[h.depth] = h;
-
-  for (const d of bypassOutputDepths) {
-    const h = topRight[d];
-    if (!h) continue;
-    inner += `<circle cx="${h.x}" cy="${h.y - BYPASS_Y_OFFSET}" r="${BYPASS_RADIUS}"
-                    fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.4"/>`;
+  const byXInput = {};
+  for (const h of leftHelpers) {
+    if (!byXInput[h.x]) byXInput[h.x] = [];
+    byXInput[h.x].push(h);
   }
 
-  for (const d of bypassInputDepths) {
-    const h = topLeft[d];
-    if (!h) continue;
-    inner += `<circle cx="${h.x}" cy="${h.y - BYPASS_Y_OFFSET}" r="${BYPASS_RADIUS}"
-                    fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.4"/>`;
+  for (const helpers of Object.values(byXInput)) {
+    if (helpers.length < 2) continue;
+    helpers.sort((a,b)=>a.y - b.y);
+
+    for (let i = 0; i < helpers.length - 1; i++) {
+      const x = helpers[i].x;
+      const y1 = helpers[i].y;
+      const y2 = helpers[i + 1].y;
+
+      inner += `
+        <line x1="${x}" y1="${y1}"
+              x2="${x}" y2="${y2}"
+              stroke="${defaultLineColor}" stroke-width="1.6" />
+      `;
+
+      const midY = (y1 + y2) / 2;
+      const arrowY =
+        midY -
+        ARROW_CENTER_ADJUST -
+        ARROW_GAP_FROM_LABEL;
+
+      inner += `
+        <polygon
+          points="
+            ${x},${arrowY + ARROW_HEIGHT}
+            ${x - ARROW_HALF_WIDTH},${arrowY}
+            ${x + ARROW_HALF_WIDTH},${arrowY}
+          "
+          fill="${defaultLineColor}" />
+      `;
+    }
+  }
+
+  // ---------------------------------
+  // HORIZONTAL TOP CONNECTIONS (RIGHT → LEFT)
+  // ---------------------------------
+  const rightTopByDepth = {};
+  const leftTopByDepth = {};
+
+  for (const h of rightHelpers) {
+    if (!rightTopByDepth[h.depth] || h.y < rightTopByDepth[h.depth].y) {
+      rightTopByDepth[h.depth] = h;
+    }
+  }
+
+  for (const h of leftHelpers) {
+    if (!leftTopByDepth[h.depth] || h.y < leftTopByDepth[h.depth].y) {
+      leftTopByDepth[h.depth] = h;
+    }
+  }
+
+  for (const d of Object.keys(rightTopByDepth).map(Number)) {
+    const from = rightTopByDepth[d];
+    const to = leftTopByDepth[d + 1];
+    if (!from || !to) continue;
+
+    const y = from.y;
+    const midX = (from.x + to.x) / 2;
+
+    inner += `
+      <line
+        x1="${from.x}" y1="${y}"
+        x2="${to.x}"   y2="${y}"
+        stroke="${defaultLineColor}"
+        stroke-width="1.6" />
+      <polygon
+        points="
+          ${midX + H_ARROW_WIDTH},${y}
+          ${midX},${y - H_ARROW_HALF_HEIGHT}
+          ${midX},${y + H_ARROW_HALF_HEIGHT}
+        "
+        fill="${defaultLineColor}" />
+    `;
+  }
+
+  // ---------------------------------
+  // Bypass detection (LOGICAL, DOTS ONLY)
+  // ---------------------------------
+  const bypassOutputDepths = new Set();
+  const bypassInputDepths = new Set();
+
+  // build adjacency list
+  const consumes = new Map();
+  for (const link of links) {
+    if (!consumes.has(link.source)) consumes.set(link.source, []);
+    consumes.get(link.source).push(link.target);
+  }
+
+  // DFS to find deepest reachable consumer
+  function findMaxDepth(startId, visited = new Set()) {
+    if (visited.has(startId)) return -Infinity;
+    visited.add(startId);
+
+    const node = nodes.find(n => n.id === startId);
+    if (!node) return -Infinity;
+
+    let maxDepth = node.depth;
+    const next = consumes.get(startId) || [];
+
+    for (const id of next) {
+      maxDepth = Math.max(maxDepth, findMaxDepth(id, visited));
+    }
+
+    return maxDepth;
+  }
+
+  // detect logical bypasses
+  for (const node of nodes) {
+    if (!node.hasOutputAnchor) continue;
+
+    const maxDepth = findMaxDepth(node.id);
+    if (maxDepth > node.depth + 1) {
+      bypassOutputDepths.add(node.depth);
+      bypassInputDepths.add(maxDepth);
+    }
   }
 
   // ---------------------------------
   // Nodes
   // ---------------------------------
   for (const node of nodes) {
-    const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
+    const fillColor = node.raw
+      ? "#f4d03f"
+      : MACHINE_COLORS[node.building] || "#95a5a6";
+
     const label = String(node.label || node.id);
 
     const fontSize = 13;
@@ -946,25 +1122,57 @@ function renderGraph(nodes, links, rootItem) {
     const width = Math.max(48, label.length * 7 + padX * 2);
     const height = fontSize + padY * 2;
 
+    // Machine count shown inside node
     const machineCount =
       Number.isFinite(Number(node.machines)) && node.machines > 0
         ? Math.ceil(node.machines)
         : "";
 
     inner += `
-      <g class="graph-node" data-id="${escapeHtml(node.id)}">
-        <rect x="${node.x - width/2}"
-              y="${node.y - nodeRadius - LABEL_OFFSET - height}"
-              width="${width}" height="${height}" rx="6"
-              fill="var(--label-box-fill)" stroke="var(--label-box-stroke)"/>
-        <text x="${node.x}"
-              y="${node.y - nodeRadius - LABEL_OFFSET - height/2}"
-              text-anchor="middle" dy="0.35em"
-              font-size="${fontSize}" font-weight="700"
-              fill="var(--label-text-fill)">${label}</text>
-        <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
-                fill="${fillColor}" stroke="#2c3e50" stroke-width="2"/>
-        ${machineCount ? `<text x="${node.x}" y="${node.y}" class="nodeNumber">${machineCount}</text>` : ""}
+      <g class="graph-node" data-id="${escapeHtml(node.id)}" tabindex="0">
+        <!-- label box -->
+        <rect
+          x="${node.x - width / 2}"
+          y="${node.y - nodeRadius - LABEL_OFFSET - height}"
+          width="${width}"
+          height="${height}"
+          rx="6"
+          fill="var(--label-box-fill)"
+          stroke="var(--label-box-stroke)" />
+
+        <text
+          x="${node.x}"
+          y="${node.y - nodeRadius - LABEL_OFFSET - height / 2}"
+          text-anchor="middle"
+          dy="0.35em"
+          font-size="${fontSize}"
+          font-weight="700"
+          fill="var(--label-text-fill)">
+          ${label}
+        </text>
+
+        <!-- node circle -->
+        <circle
+          cx="${node.x}"
+          cy="${node.y}"
+          r="${nodeRadius}"
+          fill="${fillColor}"
+          stroke="#2c3e50"
+          stroke-width="2"/>
+
+        <!-- machine count inside node -->
+        ${
+          machineCount !== ""
+            ? `
+            <text
+              x="${node.x}"
+              y="${node.y}"
+              class="nodeNumber">
+              ${machineCount}
+            </text>
+            `
+            : ""
+        }
       </g>
     `;
   }
@@ -972,7 +1180,9 @@ function renderGraph(nodes, links, rootItem) {
   return `
     <div class="graphWrapper">
       <svg class="graphSVG" viewBox="${contentX} ${contentY} ${contentW} ${contentH}">
-        <g id="zoomLayer">${inner}</g>
+        <g id="zoomLayer">
+          ${inner}
+        </g>
       </svg>
     </div>
   `;
