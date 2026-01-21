@@ -878,6 +878,29 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
+  // Helper → Helper (vertical ONLY: Wolfram Bar → Titanium Bar)
+  {
+    const wolfram = nodes.find(n => n.id === 'Wolfram Bar');
+    const titanium = nodes.find(n => n.id === 'Titanium Bar');
+
+    if (wolfram && titanium) {
+      const a = anchorRightPos(wolfram);
+      const b = anchorRightPos(titanium);
+
+      const x = a.x; // SAME X = vertical line
+      const y1 = Math.min(a.y, b.y);
+      const y2 = Math.max(a.y, b.y);
+
+      inner += `
+        <line class="helper-to-helper"
+          x1="${x}" y1="${y1}"
+          x2="${x}" y2="${y2}"
+          stroke="${defaultLineColor}"
+          stroke-width="1.6" />
+      `;
+    }
+  }
+
   // Nodes
   for (const node of nodes) {
     const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
