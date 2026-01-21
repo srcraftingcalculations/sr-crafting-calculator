@@ -946,7 +946,7 @@ function renderGraph(nodes, links, rootItem) {
         const bottomInY = Math.max(...nextInputs.map(p => p.y));
         const nextSpineX = nextInputs[0].x;
 
-        // Horizontal spine WITH arrow (direction: left → right)
+        // Horizontal spine (WITH arrow →)
         spineSvg += `
           <line
             class="graph-spine-horizontal"
@@ -960,7 +960,7 @@ function renderGraph(nodes, links, rootItem) {
           />
         `;
 
-        // Vertical down into next column (no arrow)
+        // Vertical flow drop (WITH arrow ↓)
         spineSvg += `
           <line
             class="graph-spine-vertical"
@@ -970,9 +970,11 @@ function renderGraph(nodes, links, rootItem) {
             y2="${topInY}"
             stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
             stroke-width="2"
+            marker-end="url(#arrow-down)"
           />
         `;
 
+        // Vertical grouping spine (NO arrow)
         spineSvg += `
           <line
             class="graph-spine-vertical"
