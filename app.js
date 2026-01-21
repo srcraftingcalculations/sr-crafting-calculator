@@ -1343,28 +1343,71 @@ async function init() {
   const rateInput = document.getElementById("rateInput");
   const railSelect = document.getElementById("railSelect");
 
-  // Populate itemSelect with a placeholder and filtered recipe keys (exclude internal keys like _tiers)
-  if (itemSelect) {
-    // Preserve any previously selected real item
-    const prev = itemSelect.value;
+  // Helper: ensure placeholder and remove any internal keys (like "_tiers")
+  function sanitizeItemSelect() {
+    if (!itemSelect) return;
+    // Remove any options whose value starts with '_' (internal keys)
+    const toRemove = [];
+    for (const opt of Array.from(itemSelect.options)) {
+      if (typeof opt.value === 'string' && opt.value.startsWith('_')) toRemove.push(opt);
+    }
+    toRemove.forEach(o => o.remove());
 
-    // Build items list excluding internal keys that start with '_'
+    // Ensure placeholder exists as the first option and is selected when no real value chosen
+    const first = itemSelect.options[0];
+    if (!first || first.value !== "") {
+      const placeholder = document.createElement('option');
+      placeholder.value = "";
+      placeholder.disabled = true;
+      placeholder.selected = true;
+      placeholder.textContent = "Select Item Here";
+      itemSelect.insertBefore(placeholder, itemSelect.firstChild);
+    }
+    // If currently selected value is an internal key or empty, keep placeholder selected
+    if (!itemSelect.value || itemSelect.value.startsWith('_')) {
+      itemSelect.value = "";
+      // ensure the placeholder option is selected in the DOM
+      const ph = Array.from(itemSelect.options).find(o => o.value === "");
+      if (ph) ph.selected = true;
+    }
+  }
+
+  // Initial population (safe): build items excluding internal keys
+  if (itemSelect) {
     const items = Object.keys(RECIPES || {})
       .filter(k => typeof k === 'string' && !k.startsWith('_'))
       .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 
-    // Start with a single placeholder option and then append real items
-    itemSelect.innerHTML = '<option value="" disabled selected>Select Item Here</option>';
+    // Clear and add placeholder + items
+    itemSelect.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = "";
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    placeholder.textContent = "Select Item Here";
+    itemSelect.appendChild(placeholder);
+
     for (const it of items) {
       const option = document.createElement('option');
       option.value = it;
       option.textContent = it;
       itemSelect.appendChild(option);
     }
-
-    // Restore previous selection only if it is a real item
-    if (prev && items.includes(prev)) itemSelect.value = prev;
   }
+
+  // MutationObserver: if some other code later repopulates the select (e.g., loadRecipes or other),
+  // sanitize it immediately so internal keys never remain visible.
+  if (itemSelect && typeof MutationObserver !== 'undefined') {
+    const mo = new MutationObserver(() => {
+      sanitizeItemSelect();
+    });
+    mo.observe(itemSelect, { childList: true, subtree: false, attributes: false });
+    // store observer so it can be disconnected later if needed
+    itemSelect._sanitizeObserver = mo;
+  }
+
+  // Also call sanitize once more to be safe
+  sanitizeItemSelect();
 
   if (railSelect) railSelect.innerHTML = `
     <option value="120">v1 (120/min)</option>
