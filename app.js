@@ -808,7 +808,7 @@ function renderGraph(nodes, links, rootItem) {
     });
   }
 
-  // ViewBox calc
+  // ViewBox
   const xs = nodes.map(n=>n.x), ys = nodes.map(n=>n.y);
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minY = Math.min(...ys), maxY = Math.max(...ys);
@@ -818,12 +818,23 @@ function renderGraph(nodes, links, rootItem) {
   const contentW = (maxX - minX) + nodeRadius*2 + GRAPH_CONTENT_PAD*2;
   const contentH = (maxY - minY) + nodeRadius*2 + GRAPH_CONTENT_PAD*2;
 
-  // ---------- SVG CONTENT ----------
-  let inner = '';
-
   const defaultLineColor = isDarkMode() ? '#dcdcdc' : '#444444';
 
-  // Node → helper lines + helpers
+  let inner = `
+    <defs>
+      <marker id="arrow-up-mid"
+        viewBox="0 0 10 10"
+        refX="5"
+        refY="5"
+        markerWidth="6"
+        markerHeight="6"
+        orient="auto">
+        <path d="M0 10 L5 0 L10 10 Z" fill="${defaultLineColor}" />
+      </marker>
+    </defs>
+  `;
+
+  // Node → helper
   for (const node of nodes) {
     const isSmelter = node.building === 'Smelter';
     const isBBM = node.id === BBM_ID || node.label === BBM_ID;
@@ -836,21 +847,12 @@ function renderGraph(nodes, links, rootItem) {
 
       const a = anchorRightPos(node);
       inner += `
-        <line class="node-to-helper"
-          x1="${roundCoord(node.x + nodeRadius)}"
-          y1="${node.y}"
-          x2="${a.x}"
-          y2="${a.y}"
-          stroke="${defaultLineColor}"
-          stroke-width="1.2" />
-        <g class="helper-dot helper-output"
-          transform="translate(${a.x},${a.y})">
-          <circle r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2"/>
-        </g>
-        <g class="anchor anchor-right"
-          transform="translate(${a.x},${a.y})">
-          <circle class="anchor-hit" r="${ANCHOR_HIT_RADIUS}" fill="transparent"/>
-          <circle class="anchor-dot" r="${ANCHOR_RADIUS}" fill="var(--anchor-dot-fill)" stroke="var(--anchor-dot-stroke)" stroke-width="1.2"/>
+        <line x1="${roundCoord(node.x + nodeRadius)}" y1="${node.y}"
+              x2="${a.x}" y2="${a.y}"
+              stroke="${defaultLineColor}" stroke-width="1.2"/>
+        <g transform="translate(${a.x},${a.y})">
+          <circle r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)"
+                  stroke="var(--bypass-stroke)" stroke-width="1.2"/>
         </g>
       `;
     }
@@ -858,27 +860,18 @@ function renderGraph(nodes, links, rootItem) {
     if (node.hasInputAnchor && !isSmelter && !isBBM && !node.raw) {
       const a = anchorLeftPos(node);
       inner += `
-        <line class="node-to-helper"
-          x1="${roundCoord(node.x - nodeRadius)}"
-          y1="${node.y}"
-          x2="${a.x}"
-          y2="${a.y}"
-          stroke="${defaultLineColor}"
-          stroke-width="1.2" />
-        <g class="helper-dot helper-input"
-          transform="translate(${a.x},${a.y})">
-          <circle r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2"/>
-        </g>
-        <g class="anchor anchor-left"
-          transform="translate(${a.x},${a.y})">
-          <circle class="anchor-hit" r="${ANCHOR_HIT_RADIUS}" fill="transparent"/>
-          <circle class="anchor-dot" r="${ANCHOR_RADIUS}" fill="var(--anchor-dot-fill)" stroke="var(--anchor-dot-stroke)" stroke-width="1.2"/>
+        <line x1="${roundCoord(node.x - nodeRadius)}" y1="${node.y}"
+              x2="${a.x}" y2="${a.y}"
+              stroke="${defaultLineColor}" stroke-width="1.2"/>
+        <g transform="translate(${a.x},${a.y})">
+          <circle r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)"
+                  stroke="var(--bypass-stroke)" stroke-width="1.2"/>
         </g>
       `;
     }
   }
 
-  // Helper → Helper (vertical ONLY: Wolfram Bar → Titanium Bar)
+  // Helper → Helper (VERTICAL WITH CENTERED UP ARROW)
   {
     const wolfram = nodes.find(n => n.id === 'Wolfram Bar');
     const titanium = nodes.find(n => n.id === 'Titanium Bar');
@@ -887,16 +880,19 @@ function renderGraph(nodes, links, rootItem) {
       const a = anchorRightPos(wolfram);
       const b = anchorRightPos(titanium);
 
-      const x = a.x; // SAME X = vertical line
+      const x = a.x;
       const y1 = Math.min(a.y, b.y);
       const y2 = Math.max(a.y, b.y);
+      const midY = roundCoord((y1 + y2) / 2);
 
       inner += `
-        <line class="helper-to-helper"
-          x1="${x}" y1="${y1}"
-          x2="${x}" y2="${y2}"
-          stroke="${defaultLineColor}"
-          stroke-width="1.6" />
+        <path d="M ${x} ${y2}
+                 L ${x} ${midY}
+                 L ${x} ${y1}"
+              fill="none"
+              stroke="${defaultLineColor}"
+              stroke-width="1.6"
+              marker-mid="url(#arrow-up-mid)" />
       `;
     }
   }
@@ -904,41 +900,16 @@ function renderGraph(nodes, links, rootItem) {
   // Nodes
   for (const node of nodes) {
     const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
-    const label = String(node.label || node.id);
-    const fontSize = 13;
-    const padX = 10, padY = 8;
-    const width = Math.max(48, label.length * 7 + padX*2);
-    const height = fontSize + padY*2;
-
     inner += `
-      <g class="graph-node">
-        <rect x="${node.x - width/2}" y="${node.y - GRAPH_LABEL_OFFSET - height/2}"
-              width="${width}" height="${height}" rx="6"
-              fill="var(--label-box-fill)" stroke="var(--label-box-stroke)"/>
-        <text x="${node.x}" y="${node.y - GRAPH_LABEL_OFFSET}"
-              text-anchor="middle" dominant-baseline="middle"
-              font-size="${fontSize}" font-weight="700"
-              fill="var(--label-text-fill)">${label}</text>
-        <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
-                fill="${fillColor}" stroke="#2c3e50" stroke-width="2"/>
-        ${node.raw ? '' : `<text x="${node.x}" y="${node.y}"
-          text-anchor="middle" dominant-baseline="middle"
-          font-size="13" font-weight="700"
-          fill="var(--label-text-fill)">${Math.ceil(node.machines)}</text>`}
-      </g>
+      <circle cx="${node.x}" cy="${node.y}" r="${nodeRadius}"
+              fill="${fillColor}" stroke="#2c3e50" stroke-width="2"/>
     `;
   }
 
   const dark = !!isDarkMode();
   const styleVars = `
-    --line-color:${dark?'#dcdcdc':'#444'};
     --bypass-fill:${dark?'#fff':'#2c3e50'};
     --bypass-stroke:${dark?'#000':'#fff'};
-    --anchor-dot-fill:${dark?'#fff':'#2c3e50'};
-    --anchor-dot-stroke:${dark?'#000':'#fff'};
-    --label-box-fill:${dark?'rgba(0,0,0,0.88)':'rgba(255,255,255,0.92)'};
-    --label-box-stroke:${dark?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.06)'};
-    --label-text-fill:${dark?'#fff':'#111'};
   `;
 
   return `
