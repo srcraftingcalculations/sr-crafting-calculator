@@ -491,23 +491,15 @@ function renderGraph(nodes, links, rootItem) {
 
   const nodeById = new Map(nodes.map(n => [n.id, n]));
 
-  // build columns (unchanged)
   const columns = {};
   for (const node of nodes) {
     if (!columns[node.depth]) columns[node.depth] = [];
     columns[node.depth].push(node);
   }
-
-  // compute the sorted list of populated depths first
-  const depthsSorted = Object.keys(columns).map(Number).sort((a,b) => a - b);
-
-  // iterate depths in the same sorted order so layout is deterministic
-  for (const depth of depthsSorted) {
-    const colNodes = columns[depth] || [];
+  for (const [depth, colNodes] of Object.entries(columns)) {
     colNodes.sort((a,b) => (String(a.label||a.id)).localeCompare(String(b.label||b.id), undefined, {sensitivity:'base'}));
-    const depthIndex = depthsSorted.indexOf(Number(depth)); // always >= 0
-    colNodes.forEach((node, i) => {
-      node.x = roundCoord(depthIndex * MACHINE_COL_WIDTH + 100);
+    colNodes.forEach((node,i) => {
+      node.x = roundCoord(Number(depth) * MACHINE_COL_WIDTH + 100);
       node.y = roundCoord(i * GRAPH_ROW_HEIGHT + 100);
     });
   }
