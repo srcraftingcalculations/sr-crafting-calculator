@@ -1,13 +1,20 @@
-// ===============================
-// app.js - Full updated script
-// - Theme-aware, accessible, and robust graph rendering
-// - Click-to-highlight inputs, panning-safe click threshold
-// - Uses CSS variables for theme so SVG updates automatically
-// ===============================
+// app.js — Complete script (integrated fixes, preserves recipes.json loader, theme wiring, full renderGraph, UI wiring)
+// - Restores local/remote recipes.json loader
+// - Theme helpers + automatic graph CSS var updates
+// - renderGraph uses CSS variables and centers labels in a blurred backdrop
+// - Anchors: raw materials off far-left get right-only helper; helper dots connect to nodes
+// - Click a node to highlight immediate inputs (toggle); panning-safe click threshold
+// - Minimal pan/zoom and keyboard accessibility for nodes
+// - Exposes window._updateGraphThemeVars() and reloadRecipes() for dev convenience
 
 /* ===============================
    Configuration & Constants
    =============================== */
+const MACHINE_COL_WIDTH = 220;
+const GRAPH_ROW_HEIGHT = 120;
+const GRAPH_LABEL_OFFSET = 40;
+const GRAPH_CONTENT_PAD = 64;
+
 const MACHINE_COLORS = {
   "Smelter":      "#e67e22",
   "Furnace":      "#d63031",
@@ -24,11 +31,6 @@ const SPECIAL_EXTRACTORS = {
   "Goethite Ore": 400,
   "Sulphur Ore": 240
 };
-
-const GRAPH_COL_WIDTH = 220;
-const GRAPH_ROW_HEIGHT = 120;
-const GRAPH_LABEL_OFFSET = 40;
-const GRAPH_CONTENT_PAD = 64;
 
 const DRAG_THRESHOLD_PX = 8;      // desktop threshold
 const TOUCH_THRESHOLD_PX = 12;    // touch threshold
@@ -49,22 +51,117 @@ function getTextColor(bg) {
   const luminance = (0.299 * r + 0.587 * g + 0.114 * b);
   return luminance > 150 ? "#000000" : "#ffffff";
 }
+
+/* ===============================
+   Theme helpers and dark-mode wiring
+   =============================== */
 function isDarkMode() {
-  return document.documentElement.classList.contains('dark') || document.body.classList.contains('dark');
+  if (document.documentElement.classList.contains('dark') || document.body.classList.contains('dark')) return true;
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return true;
+  return false;
 }
-function showToast(message) {
-  const container = document.getElementById("toastContainer");
-  if (!container) return;
-  const toast = document.createElement("div");
-  toast.className = "toast";
-  toast.textContent = message;
-  container.appendChild(toast);
-  requestAnimationFrame(() => toast.classList.add("show"));
-  setTimeout(() => {
-    toast.classList.remove("show");
-    setTimeout(() => toast.remove(), 300);
-  }, 2500);
+
+function applyThemeClass(dark) {
+  if (dark) {
+    document.documentElement.classList.add('dark');
+    document.body.classList.add('dark');
+  } else {
+    document.documentElement.classList.remove('dark');
+    document.body.classList.remove('dark');
+  }
+
+  if (typeof window._updateGraphThemeVars === 'function') {
+    try { window._updateGraphThemeVars(); } catch (e) { /* ignore */ }
+    return;
+  }
+
+  const vars = {
+    '--line-color': dark ? '#dcdcdc' : '#444444',
+    '--spine-color': dark ? '#bdbdbd' : '#666666',
+    '--raw-edge-color': '#333333',
+    '--label-box-fill': dark ? 'rgba(0,0,0,0.88)' : 'rgba(255,255,255,0.92)',
+    '--label-box-stroke': dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+    '--label-text-fill': dark ? '#ffffff' : '#111111',
+    '--label-text-stroke': dark ? '#000000' : '#ffffff',
+    '--label-text-stroke-width': dark ? '1.0' : '0.6',
+    '--anchor-dot-fill': dark ? '#ffffff' : '#2c3e50',
+    '--anchor-dot-stroke': dark ? '#000000' : '#ffffff',
+    '--bypass-fill': dark ? '#ffffff' : '#2c3e50',
+    '--bypass-stroke': dark ? '#000000' : '#ffffff'
+  };
+  document.querySelectorAll('.graphWrapper').forEach(w => {
+    for (const [k, v] of Object.entries(vars)) w.style.setProperty(k, v);
+  });
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+  const toggle = document.getElementById('darkModeToggle');
+  const dark = isDarkMode();
+  applyThemeClass(dark);
+  if (toggle) toggle.textContent = dark ? '☀️ Light Mode' : '🌙 Dark Mode';
+
+  if (!toggle) return;
+  toggle.addEventListener('click', () => {
+    const nowDark = !document.documentElement.classList.contains('dark');
+    applyThemeClass(nowDark);
+    toggle.textContent = nowDark ? '☀️ Light Mode' : '🌙 Dark Mode';
+  });
+});
+
+/* Install observer once to update wrappers when theme toggles elsewhere */
+(function installThemeObserverOnce() {
+  if (window._graphThemeObserverInstalled) return;
+  window._graphThemeObserverInstalled = true;
+
+  function computeVarsFromTheme() {
+    const darkNow = isDarkMode();
+    return {
+      '--line-color': darkNow ? '#dcdcdc' : '#444444',
+      '--spine-color': darkNow ? '#bdbdbd' : '#666666',
+      '--raw-edge-color': '#333333',
+      '--label-box-fill': darkNow ? 'rgba(0,0,0,0.88)' : 'rgba(255,255,255,0.92)',
+      '--label-box-stroke': darkNow ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+      '--label-text-fill': darkNow ? '#ffffff' : '#111111',
+      '--label-text-stroke': darkNow ? '#000000' : '#ffffff',
+      '--label-text-stroke-width': darkNow ? '1.0' : '0.6',
+      '--anchor-dot-fill': darkNow ? '#ffffff' : '#2c3e50',
+      '--anchor-dot-stroke': darkNow ? '#000000' : '#ffffff',
+      '--bypass-fill': darkNow ? '#ffffff' : '#2c3e50',
+      '--bypass-stroke': darkNow ? '#000000' : '#ffffff'
+    };
+  }
+
+  function updateAllGraphWrappers() {
+    const vars = computeVarsFromTheme();
+    const wrappers = document.querySelectorAll('.graphWrapper');
+    wrappers.forEach(w => {
+      for (const [k, v] of Object.entries(vars)) w.style.setProperty(k, v);
+    });
+  }
+
+  const target = document.documentElement || document.body;
+  try {
+    const mo = new MutationObserver(mutations => {
+      for (const m of mutations) {
+        if (m.type === 'attributes' && (m.attributeName === 'class' || m.attributeName === 'data-theme' || m.attributeName === 'theme')) {
+          updateAllGraphWrappers();
+          return;
+        }
+      }
+    });
+    mo.observe(target, { attributes: true, attributeFilter: ['class', 'data-theme', 'theme'] });
+
+    if (window.matchMedia) {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      if (typeof mq.addEventListener === 'function') mq.addEventListener('change', updateAllGraphWrappers);
+      else if (typeof mq.addListener === 'function') mq.addListener(updateAllGraphWrappers);
+    }
+
+    window._updateGraphThemeVars = updateAllGraphWrappers;
+  } catch (e) {
+    window._updateGraphThemeVars = updateAllGraphWrappers;
+  }
+})();
 
 /* ===============================
    Info bubble behavior
@@ -119,32 +216,110 @@ function showToast(message) {
 })();
 
 /* ===============================
-   Data loading & recipe helpers
+   Data loading & recipe helpers (restored)
    =============================== */
 let RECIPES = {};
 let TIERS = {};
 
+async function fetchJson(url) {
+  const resp = await fetch(url, { cache: "no-store" });
+  if (!resp.ok) throw new Error(`Fetch failed: ${url} (${resp.status})`);
+  return resp.json();
+}
+
 async function loadRecipes() {
-  const url = "https://srcraftingcalculations.github.io/sr-crafting-calculator/data/recipes.json";
+  const localPath = "data/recipes.json";
+  const remotePath = "https://srcraftingcalculations.github.io/sr-crafting-calculator/data/recipes.json";
+
+  let data = null;
   try {
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) throw new Error("Failed to fetch recipes.json");
-    return await response.json();
-  } catch (err) {
-    console.error("Error loading recipes:", err);
-    const out = document.getElementById("outputArea");
-    if (out) out.innerHTML = `<p style="color:red;">Error loading recipe data. Please try again later.</p>`;
-    return {};
+    data = await fetchJson(localPath);
+    console.info("Loaded recipes from local data/recipes.json");
+  } catch (localErr) {
+    console.warn("Local recipes.json not found or failed to load, falling back to remote:", localErr);
+    try {
+      data = await fetchJson(remotePath);
+      console.info("Loaded recipes from remote URL");
+    } catch (remoteErr) {
+      console.error("Failed to load recipes from remote URL as well:", remoteErr);
+      const out = document.getElementById("outputArea");
+      if (out) out.innerHTML = `<p style="color:red;">Error loading recipe data. Please try again later.</p>`;
+      return;
+    }
+  }
+
+  if (!data || typeof data !== "object") {
+    console.error("Invalid recipe data format");
+    return;
+  }
+
+  RECIPES = data;
+
+  TIERS = {};
+  for (const [name, recipe] of Object.entries(RECIPES)) {
+    if (typeof recipe.tier === "number") {
+      TIERS[name] = recipe.tier;
+      continue;
+    }
+    TIERS[name] = 0;
+  }
+
+  let changed = true;
+  for (let pass = 0; pass < 50 && changed; pass++) {
+    changed = false;
+    for (const [name, recipe] of Object.entries(RECIPES)) {
+      if (!recipe || !recipe.inputs) continue;
+      let maxInputTier = -1;
+      for (const inputName of Object.keys(recipe.inputs)) {
+        const t = TIERS[inputName] ?? 0;
+        if (t > maxInputTier) maxInputTier = t;
+      }
+      const newTier = (maxInputTier >= 0) ? (maxInputTier + 1) : 1;
+      if (TIERS[name] !== newTier) {
+        TIERS[name] = newTier;
+        changed = true;
+      }
+    }
+  }
+
+  const select = document.getElementById("itemSelect");
+  if (select) {
+    const items = Object.keys(RECIPES).sort((a,b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    const prev = select.value;
+    select.innerHTML = items.map(it => `<option value="${escapeHtml(it)}">${escapeHtml(it)}</option>`).join("");
+    if (prev && items.includes(prev)) select.value = prev;
+  }
+
+  window.RECIPES = RECIPES;
+  window.TIERS = TIERS;
+  console.info("Recipes loaded:", Object.keys(RECIPES).length, "items");
+  return RECIPES;
+}
+
+async function reloadRecipes() {
+  RECIPES = {};
+  TIERS = {};
+  await loadRecipes();
+  if (window._lastSelectedItem) {
+    const rate = window._lastSelectedRate || 60;
+    const { chain } = expandChain(window._lastSelectedItem, rate);
+    const graph = buildGraphData(chain, window._lastSelectedItem);
+    document.getElementById('graphArea').innerHTML = renderGraph(graph.nodes, graph.links, window._lastSelectedItem);
+    attachGraphInteractions();
   }
 }
 
+document.addEventListener('DOMContentLoaded', () => {
+  loadRecipes().catch(err => console.error("loadRecipes error:", err));
+});
+
+/* ===============================
+   Expand production chain & graph data
+   =============================== */
 function getRecipe(name) {
   return RECIPES[name] || null;
 }
 
-/* ===============================
-   Expand production chain
-   =============================== */
 function expandChain(item, targetRate) {
   const chain = {};
   const machineTotals = {};
@@ -211,9 +386,6 @@ function expandChain(item, targetRate) {
   return { chain, machineTotals, extractorTotals };
 }
 
-/* ===============================
-   Depth computation & graph data
-   =============================== */
 function computeDepths(chain, rootItem) {
   const consumers = {};
   const depths = {};
@@ -322,10 +494,10 @@ function buildGraphData(chain, rootItem) {
 })();
 
 /* ===============================
-   renderGraph
-   - Full implementation uses CSS variables for theme
-   - Centers labels in blurred backdrop
-   - Connects helper dots to nodes
+   renderGraph (full)
+   - Uses CSS variables for colors and label box
+   - Connects visible helper dots to their node via short lines
+   - Implements rule: any raw material listed in any column except far-left gets right helper only
    =============================== */
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
@@ -338,14 +510,12 @@ function renderGraph(nodes, links, rootItem) {
   function anchorRightPos(node) { return { x: roundCoord(node.x + nodeRadius + ANCHOR_OFFSET), y: roundCoord(node.y) }; }
   function anchorLeftPos(node)  { return { x: roundCoord(node.x - nodeRadius - ANCHOR_OFFSET), y: roundCoord(node.y) }; }
 
-  // defaults
   for (const n of nodes) {
     if (typeof n.hasInputAnchor === 'undefined') n.hasInputAnchor = true;
     if (typeof n.hasOutputAnchor === 'undefined') n.hasOutputAnchor = true;
     if (typeof n.depth === 'undefined') n.depth = 0;
   }
 
-  // place BBM in smelter column (prefer building === 'Smelter', fallback to canonical outputs)
   const bbmNode = nodes.find(n => n.id === BBM_ID || n.label === BBM_ID);
   if (bbmNode) {
     const smelterDepths = nodes.filter(n => n.building === 'Smelter').map(n => n.depth);
@@ -361,7 +531,6 @@ function renderGraph(nodes, links, rootItem) {
 
   const nodeById = new Map(nodes.map(n => [n.id, n]));
 
-  // group by depth and layout
   const columns = {};
   for (const node of nodes) {
     if (!columns[node.depth]) columns[node.depth] = [];
@@ -370,12 +539,11 @@ function renderGraph(nodes, links, rootItem) {
   for (const [depth, colNodes] of Object.entries(columns)) {
     colNodes.sort((a,b) => (String(a.label||a.id)).localeCompare(String(b.label||b.id), undefined, {sensitivity:'base'}));
     colNodes.forEach((node,i) => {
-      node.x = roundCoord(Number(depth) * GRAPH_COL_WIDTH + 100);
+      node.x = roundCoord(Number(depth) * MACHINE_COL_WIDTH + 100);
       node.y = roundCoord(i * GRAPH_ROW_HEIGHT + 100);
     });
   }
 
-  // bounds
   const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
   const minX = nodes.length ? Math.min(...xs) : 0;
   const maxX = nodes.length ? Math.max(...xs) : 0;
@@ -389,7 +557,7 @@ function renderGraph(nodes, links, rootItem) {
   const minDepth = nodes.length ? Math.min(...nodes.map(n => n.depth)) : 0;
   const maxDepth = nodes.length ? Math.max(...nodes.map(n => n.depth)) : 0;
 
-  // decide anchors (new rule: raw nodes not in far-left => right-only)
+  // decide anchors (raw nodes not in far-left => right-only)
   const willRenderAnchors = [];
   for (const node of nodes) {
     const hideAllAnchors = (node.raw && node.depth === minDepth);
@@ -405,7 +573,6 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
-  // shortest gap for bypass placement
   const uniqueYs = Array.from(new Set(willRenderAnchors.map(a => a.pos.y))).sort((a,b)=>a-b);
   let shortestGap = nodeRadius + ANCHOR_OFFSET;
   if (uniqueYs.length >= 2) {
@@ -418,7 +585,6 @@ function renderGraph(nodes, links, rootItem) {
   }
   shortestGap = roundCoord(shortestGap);
 
-  // compute bypass centers
   const depthsSorted = Object.keys(columns).map(d=>Number(d)).sort((a,b)=>a-b);
   const needsOutputBypass = new Map();
   for (const depth of depthsSorted) {
@@ -455,7 +621,6 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
-  // expose for debugging
   window._needsOutputBypass = needsOutputBypass;
   window._needsInputBypass = needsInputBypass;
   window._graphNodes = nodes;
@@ -498,7 +663,6 @@ function renderGraph(nodes, links, rootItem) {
     }
   })();
 
-  // defs and initial inner
   let inner = `
     <defs>
       <filter id="labelBackdrop" x="-40%" y="-40%" width="180%" height="180%">
@@ -605,7 +769,6 @@ function renderGraph(nodes, links, rootItem) {
     inner += `<g class="bypass-dot bypass-input" data-depth="${consumerDepth}" transform="translate(${pos.x},${pos.y})" aria-hidden="false"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
   }
 
-  // initial CSS vars from current theme
   const dark = !!(typeof isDarkMode === 'function' ? isDarkMode() : false);
   const initialVars = {
     '--line-color': dark ? '#dcdcdc' : '#444444',
@@ -631,11 +794,11 @@ function renderGraph(nodes, links, rootItem) {
   const html = `<div class="graphWrapper" data-vb="${viewBoxX},${viewBoxY},${viewBoxW},${viewBoxH}" style="${wrapperStyle}"><div class="graphViewport"><svg xmlns="http://www.w3.org/2000/svg" class="graphSVG" viewBox="${viewBoxX} ${viewBoxY} ${viewBoxW} ${viewBoxH}" preserveAspectRatio="xMidYMid meet"><g id="zoomLayer">${inner}</g></svg></div></div>`;
 
   // install observer once to update CSS vars on theme change
-  (function installThemeObserverOnce(){
-    if (window._graphThemeObserverInstalled) return;
-    window._graphThemeObserverInstalled = true;
+  (function installThemeObserverOnceLocal(){
+    if (window._graphThemeObserverInstalledLocal) return;
+    window._graphThemeObserverInstalledLocal = true;
 
-    function computeVarsFromTheme() {
+    function computeVarsFromThemeLocal() {
       const darkNow = !!(typeof isDarkMode === 'function' ? isDarkMode() : false);
       return {
         '--line-color': darkNow ? '#dcdcdc' : '#444444',
@@ -653,8 +816,8 @@ function renderGraph(nodes, links, rootItem) {
       };
     }
 
-    function updateAllGraphWrappers() {
-      const vars = computeVarsFromTheme();
+    function updateAllGraphWrappersLocal() {
+      const vars = computeVarsFromThemeLocal();
       const wrappers = document.querySelectorAll('.graphWrapper');
       wrappers.forEach(w => {
         for (const [k, v] of Object.entries(vars)) w.style.setProperty(k, v);
@@ -666,7 +829,7 @@ function renderGraph(nodes, links, rootItem) {
       const mo = new MutationObserver(mutations => {
         for (const m of mutations) {
           if (m.type === 'attributes' && (m.attributeName === 'class' || m.attributeName === 'data-theme' || m.attributeName === 'theme')) {
-            updateAllGraphWrappers();
+            updateAllGraphWrappersLocal();
             return;
           }
         }
@@ -675,13 +838,13 @@ function renderGraph(nodes, links, rootItem) {
 
       if (window.matchMedia) {
         const mq = window.matchMedia('(prefers-color-scheme: dark)');
-        if (typeof mq.addEventListener === 'function') mq.addEventListener('change', updateAllGraphWrappers);
-        else if (typeof mq.addListener === 'function') mq.addListener(updateAllGraphWrappers);
+        if (typeof mq.addEventListener === 'function') mq.addEventListener('change', updateAllGraphWrappersLocal);
+        else if (typeof mq.addListener === 'function') mq.addListener(updateAllGraphWrappersLocal);
       }
 
-      window._updateGraphThemeVars = updateAllGraphWrappers;
+      window._updateGraphThemeVars = updateAllGraphWrappersLocal;
     } catch (e) {
-      window._updateGraphThemeVars = updateAllGraphWrappers;
+      window._updateGraphThemeVars = updateAllGraphWrappersLocal;
     }
   })();
 
@@ -689,115 +852,219 @@ function renderGraph(nodes, links, rootItem) {
 }
 
 /* ===============================
-   Theme helpers and dark-mode wiring
-   - initialize toggle and expose manual updater
+   Graph interaction helpers
+   - attachGraphInteractions() should be called after inserting renderGraph output into DOM
+   - click a node to highlight its immediate inputs (toggle)
+   - short drag threshold prevents accidental activation while panning
    =============================== */
-function applyThemeClass(dark) {
-  if (dark) {
-    document.documentElement.classList.add('dark');
-    document.body.classList.add('dark');
-  } else {
-    document.documentElement.classList.remove('dark');
-    document.body.classList.remove('dark');
-  }
+function attachGraphInteractions() {
+  const graphArea = document.getElementById('graphArea');
+  if (!graphArea) return;
 
-  if (typeof window._updateGraphThemeVars === 'function') {
-    try { window._updateGraphThemeVars(); } catch (e) { /* ignore */ }
-    return;
-  }
+  // remove previous listeners by cloning
+  const newGraphArea = graphArea.cloneNode(true);
+  graphArea.parentNode.replaceChild(newGraphArea, graphArea);
 
-  const vars = {
-    '--line-color': dark ? '#dcdcdc' : '#444444',
-    '--spine-color': dark ? '#bdbdbd' : '#666666',
-    '--raw-edge-color': '#333333',
-    '--label-box-fill': dark ? 'rgba(0,0,0,0.88)' : 'rgba(255,255,255,0.92)',
-    '--label-box-stroke': dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-    '--label-text-fill': dark ? '#ffffff' : '#111111',
-    '--label-text-stroke': dark ? '#000000' : '#ffffff',
-    '--label-text-stroke-width': dark ? '1.0' : '0.6',
-    '--anchor-dot-fill': dark ? '#ffffff' : '#2c3e50',
-    '--anchor-dot-stroke': dark ? '#000000' : '#ffffff',
-    '--bypass-fill': dark ? '#ffffff' : '#2c3e50',
-    '--bypass-stroke': dark ? '#000000' : '#ffffff'
-  };
-  document.querySelectorAll('.graphWrapper').forEach(w => {
-    for (const [k, v] of Object.entries(vars)) w.style.setProperty(k, v);
+  // attach click handlers to nodes
+  const wrappers = document.querySelectorAll('.graphWrapper');
+  wrappers.forEach(wrapper => {
+    const svg = wrapper.querySelector('svg.graphSVG');
+    if (!svg) return;
+
+    // click/touch handling with drag threshold
+    let pointerDown = null;
+    svg.addEventListener('pointerdown', (ev) => {
+      pointerDown = { x: ev.clientX, y: ev.clientY, time: Date.now() };
+    }, { passive: true });
+
+    svg.addEventListener('pointerup', (ev) => {
+      if (!pointerDown) return;
+      const dx = Math.abs(ev.clientX - pointerDown.x);
+      const dy = Math.abs(ev.clientY - pointerDown.y);
+      const moved = Math.sqrt(dx*dx + dy*dy);
+      pointerDown = null;
+      if (moved > DRAG_THRESHOLD_PX) return; // treat as pan, not click
+
+      // find nearest graph-node group ancestor
+      let target = ev.target;
+      while (target && !target.classList?.contains('graph-node')) target = target.parentNode;
+      if (!target) return;
+
+      const nodeId = target.getAttribute('data-id');
+      if (!nodeId) return;
+      toggleHighlightNode(nodeId, wrapper);
+    });
+
+    // keyboard accessibility: Enter/Space on focused .graph-node toggles highlight
+    const nodes = svg.querySelectorAll('.graph-node');
+    nodes.forEach(n => {
+      n.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          const id = n.getAttribute('data-id');
+          if (id) toggleHighlightNode(id, wrapper);
+        }
+      });
+    });
   });
+
+  // helper: toggle highlight for a node within a wrapper
+  function toggleHighlightNode(nodeId, wrapper) {
+    const svg = wrapper.querySelector('svg.graphSVG');
+    if (!svg) return;
+    const allNodes = Array.from(svg.querySelectorAll('.graph-node'));
+    const allCircles = Array.from(svg.querySelectorAll('.graph-node-circle'));
+    const allLines = Array.from(svg.querySelectorAll('line'));
+
+    // clear any existing pulses if same node clicked
+    const active = svg.querySelector('.graph-node.active');
+    if (active && active.getAttribute('data-id') === nodeId) {
+      // clear
+      svg.querySelectorAll('.pulse-origin, .pulse-node, .pulse-edge').forEach(el => {
+        el.classList.remove('pulse-origin','pulse-node','pulse-edge');
+      });
+      svg.querySelectorAll('.graph-node').forEach(g => g.classList.remove('active'));
+      return;
+    }
+
+    // clear previous
+    svg.querySelectorAll('.pulse-origin, .pulse-node, .pulse-edge').forEach(el => {
+      el.classList.remove('pulse-origin','pulse-node','pulse-edge');
+    });
+    svg.querySelectorAll('.graph-node').forEach(g => g.classList.remove('active'));
+
+    // mark origin node
+    const originGroup = svg.querySelector(`.graph-node[data-id="${CSS.escape(nodeId)}"]`);
+    if (!originGroup) return;
+    originGroup.classList.add('active');
+
+    const originCircle = originGroup.querySelector('.graph-node-circle');
+    if (originCircle) originCircle.classList.add('pulse-origin');
+
+    // highlight immediate input nodes and connecting edges
+    // find links where from = consumer and to = input; our renderGraph used data attributes on lines for raw edges only,
+    // but we can infer by proximity: lines with data-from/data-to attributes exist for raw edges; for bypass connectors we used data attributes too.
+    // Simpler: highlight nodes that are inputs in the chain by checking rendered positions: find nodes whose x is less than origin.x and that are connected via links array (if available)
+    // We'll use window._graphNodes and window._needsInputBypass/_needsOutputBypass to find connections if present.
+
+    // Build quick adjacency from DOM lines that have data-from/data-to
+    const inputIds = new Set();
+    const lines = Array.from(svg.querySelectorAll('line[data-from][data-to]'));
+    lines.forEach(l => {
+      const from = l.getAttribute('data-from');
+      const to = l.getAttribute('data-to');
+      if (from === nodeId && to) inputIds.add(to);
+      if (to === nodeId && from) inputIds.add(from);
+    });
+
+    // Also consider bypass connectors that have data-from-depth/data-to-depth (we'll not resolve those to ids here)
+    // Fallback: highlight nodes that are immediate inputs by checking the original graph data if available
+    if (inputIds.size === 0 && window._graphNodes) {
+      // find node in _graphNodes
+      const node = window._graphNodes.find(n => n.id === nodeId);
+      if (node && node.inputs) {
+        for (const k of Object.keys(node.inputs || {})) inputIds.add(k);
+      }
+    }
+
+    // apply pulses to input nodes and edges that connect them
+    inputIds.forEach(id => {
+      const g = svg.querySelector(`.graph-node[data-id="${CSS.escape(id)}"]`);
+      if (g) {
+        const c = g.querySelector('.graph-node-circle');
+        if (c) c.classList.add('pulse-node');
+        g.classList.add('active');
+      }
+      // highlight any line that connects origin to this input (if present)
+      const connecting = svg.querySelectorAll(`line[data-from="${CSS.escape(nodeId)}"][data-to="${CSS.escape(id)}"], line[data-from="${CSS.escape(id)}"][data-to="${CSS.escape(nodeId)}"]`);
+      connecting.forEach(l => l.classList.add('pulse-edge'));
+    });
+  }
 }
 
-function isDarkModeInitial() {
-  if (document.documentElement.classList.contains('dark') || document.body.classList.contains('dark')) return true;
-  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return true;
-  return false;
-}
-
+/* ===============================
+   UI wiring: Calculate button, Clear, Share (minimal)
+   =============================== */
 document.addEventListener('DOMContentLoaded', () => {
-  const toggle = document.getElementById('darkModeToggle');
-  const dark = isDarkModeInitial();
-  applyThemeClass(dark);
-  if (toggle) toggle.textContent = dark ? '☀️ Light Mode' : '🌙 Dark Mode';
+  const calcBtn = document.getElementById('calcButton');
+  const clearBtn = document.getElementById('clearStateBtn');
+  const shareBtn = document.getElementById('shareButton');
+  const itemSelect = document.getElementById('itemSelect');
+  const rateInput = document.getElementById('rateInput');
+  const graphArea = document.getElementById('graphArea');
 
-  if (!toggle) return;
-  toggle.addEventListener('click', () => {
-    const nowDark = !document.documentElement.classList.contains('dark');
-    applyThemeClass(nowDark);
-    toggle.textContent = nowDark ? '☀️ Light Mode' : '🌙 Dark Mode';
-  });
+  if (calcBtn) {
+    calcBtn.addEventListener('click', () => {
+      const item = itemSelect?.value;
+      const rate = Number(rateInput?.value || 60);
+      if (!item) {
+        showToast('Please select an item first.');
+        return;
+      }
+      window._lastSelectedItem = item;
+      window._lastSelectedRate = rate;
+      const { chain } = expandChain(item, rate);
+      const graph = buildGraphData(chain, item);
+      graphArea.innerHTML = renderGraph(graph.nodes, graph.links, item);
+      attachGraphInteractions();
+    });
+  }
+
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      window._lastSelectedItem = null;
+      window._lastSelectedRate = null;
+      document.getElementById('outputArea').innerHTML = '';
+      document.getElementById('graphArea').innerHTML = '';
+    });
+  }
+
+  if (shareBtn) {
+    shareBtn.addEventListener('click', () => {
+      const item = itemSelect?.value;
+      const rate = Number(rateInput?.value || 60);
+      if (!item) { showToast('Select an item to share'); return; }
+      const params = new URLSearchParams({ item, rate: String(rate) });
+      const url = `${location.origin}${location.pathname}?${params.toString()}`;
+      navigator.clipboard?.writeText(url).then(() => showToast('Share link copied to clipboard'), () => showToast('Could not copy link'));
+    });
+  }
+
+  // If URL contains params, auto-populate and calculate
+  (function applyUrlParams() {
+    try {
+      const params = new URLSearchParams(location.search);
+      const item = params.get('item');
+      const rate = params.get('rate');
+      if (item && itemSelect) itemSelect.value = item;
+      if (rate && rateInput) rateInput.value = rate;
+      if (item) {
+        // auto-calc after a short delay to allow recipes to load
+        setTimeout(() => { if (calcBtn) calcBtn.click(); }, 300);
+      }
+    } catch (e) { /* ignore */ }
+  })();
 });
 
 /* ===============================
-   Theme observer (installs once)
+   Small toast helper (reused)
    =============================== */
-(function installThemeObserverOnce() {
-  if (window._graphThemeObserverInstalled) return;
-  window._graphThemeObserverInstalled = true;
+function showToast(message) {
+  const container = document.getElementById("toastContainer");
+  if (!container) return;
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.textContent = message;
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("show"));
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 300);
+  }, 2500);
+}
 
-  function computeVarsFromTheme() {
-    const darkNow = isDarkModeInitial();
-    return {
-      '--line-color': darkNow ? '#dcdcdc' : '#444444',
-      '--spine-color': darkNow ? '#bdbdbd' : '#666666',
-      '--raw-edge-color': '#333333',
-      '--label-box-fill': darkNow ? 'rgba(0,0,0,0.88)' : 'rgba(255,255,255,0.92)',
-      '--label-box-stroke': darkNow ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-      '--label-text-fill': darkNow ? '#ffffff' : '#111111',
-      '--label-text-stroke': darkNow ? '#000000' : '#ffffff',
-      '--label-text-stroke-width': darkNow ? '1.0' : '0.6',
-      '--anchor-dot-fill': darkNow ? '#ffffff' : '#2c3e50',
-      '--anchor-dot-stroke': darkNow ? '#000000' : '#ffffff',
-      '--bypass-fill': darkNow ? '#ffffff' : '#2c3e50',
-      '--bypass-stroke': darkNow ? '#000000' : '#ffffff'
-    };
-  }
-
-  function updateAllGraphWrappers() {
-    const vars = computeVarsFromTheme();
-    const wrappers = document.querySelectorAll('.graphWrapper');
-    wrappers.forEach(w => {
-      for (const [k, v] of Object.entries(vars)) w.style.setProperty(k, v);
-    });
-  }
-
-  const target = document.documentElement || document.body;
-  try {
-    const mo = new MutationObserver(mutations => {
-      for (const m of mutations) {
-        if (m.type === 'attributes' && (m.attributeName === 'class' || m.attributeName === 'data-theme' || m.attributeName === 'theme')) {
-          updateAllGraphWrappers();
-          return;
-        }
-      }
-    });
-    mo.observe(target, { attributes: true, attributeFilter: ['class', 'data-theme', 'theme'] });
-
-    if (window.matchMedia) {
-      const mq = window.matchMedia('(prefers-color-scheme: dark)');
-      if (typeof mq.addEventListener === 'function') mq.addEventListener('change', updateAllGraphWrappers);
-      else if (typeof mq.addListener === 'function') mq.addListener(updateAllGraphWrappers);
-    }
-
-    window._updateGraphThemeVars = updateAllGraphWrappers;
-  } catch (e) {
-    window._updateGraphThemeVars = updateAllGraphWrappers;
-  }
-})();
+/* ===============================
+   End of app.js
+   - If you want the recipes embedded directly into this file (no external fetch), I can paste them in on request.
+   - Otherwise keep data/recipes.json in the data/ folder for offline use.
+   =============================== */
