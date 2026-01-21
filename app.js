@@ -848,6 +848,11 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
+  const bypassExtraTop =
+    (bypassOutputDepths.size || bypassInputDepths.size)
+      ? BYPASS_Y_OFFSET + BYPASS_RADIUS + 12
+      : 0;
+
   // ---------------------------------
   // ViewBox
   // ---------------------------------
