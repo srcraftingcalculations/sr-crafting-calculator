@@ -763,7 +763,7 @@ function buildGraphData(chain, rootItem) {
   return { nodes, links };
 }
 
-// Deterministic renderGraph. Drop-in replacement for the removed renderer.
+// Full updated renderGraph function with restricted raw node->node edges
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
   const ANCHOR_RADIUS = 5;
@@ -816,15 +816,15 @@ function renderGraph(nodes, links, rootItem) {
   // Compute helper positions and bypass needs
   const willRenderAnchors = [];
   for (const node of nodes) {
-    const hideAllAnchors = (node.raw && node.depth === minDepth);
+    // NOTE: anchors are always considered for rendering here; visibility is controlled later per-node
     const isSmelter = (node.building === 'Smelter');
     const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
     const rawRightOnly = !!(node.raw && node.depth !== minDepth);
 
-    if (!hideAllAnchors && !rawRightOnly && node.hasInputAnchor && !isSmelter && !isBBM) {
+    if (node.hasInputAnchor && !isSmelter && !isBBM) {
       willRenderAnchors.push({ side:'left', node, pos: anchorLeftPos(node) });
     }
-    if (!hideAllAnchors && (node.hasOutputAnchor || rawRightOnly || isBBM) && node.depth !== maxDepth) {
+    if ((node.hasOutputAnchor || rawRightOnly || isBBM) && node.depth !== maxDepth) {
       willRenderAnchors.push({ side:'right', node, pos: anchorRightPos(node) });
     }
   }
@@ -931,8 +931,6 @@ function renderGraph(nodes, links, rootItem) {
   `;
 
   // --- Node-to-node edges (restricted) ---
-  // Only emit node->node lines when source is raw in far-left column (minDepth)
-  // and destination is in minDepth or minDepth+1.
   (function emitRestrictedRawEdges() {
     const defaultLineColor = isDarkMode() ? '#dcdcdc' : '#444444';
     const defaultRawColor = '#333333';
@@ -958,27 +956,31 @@ function renderGraph(nodes, links, rootItem) {
     }
   })();
 
-  // Node-to-helper connectors and helper dots
+  // Node-to-helper connectors and helper dots (anchors always drawn)
   const helperMap = new Map();
   const defaultLineColor = isDarkMode() ? '#dcdcdc' : '#444444';
   for (const node of nodes) {
-    const hideAllAnchors = (node.raw && node.depth === minDepth);
     const isSmelter = (node.building === 'Smelter');
     const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
     const rawRightOnly = !!(node.raw && node.depth !== minDepth);
 
-    if (!hideAllAnchors && (node.hasOutputAnchor || rawRightOnly || isBBM) && node.depth !== maxDepth) {
+    // Right anchor (output) - draw for eligible nodes
+    if ((node.hasOutputAnchor || rawRightOnly || isBBM) && node.depth !== maxDepth) {
       const a = anchorRightPos(node);
       helperMap.set(`${node.id}:right`, a);
       inner += `<line class="node-to-helper" data-node="${escapeHtml(node.id)}" data-side="right" x1="${roundCoord(node.x + nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" stroke="${defaultLineColor}" stroke-width="1.2" />`;
       inner += `<g class="helper-dot helper-output" data-node="${escapeHtml(node.id)}" data-side="right" transform="translate(${a.x},${a.y})" aria-hidden="true"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
+      // Anchor group for pointer/keyboard interaction
+      inner += `<g class="anchor anchor-right" data-node="${escapeHtml(node.id)}" data-side="right" transform="translate(${a.x},${a.y})" tabindex="0" role="button" aria-label="Output anchor for ${escapeHtml(node.label)}"><circle class="anchor-hit" cx="0" cy="0" r="${ANCHOR_HIT_RADIUS}" fill="transparent" pointer-events="all" /><circle class="anchor-dot" cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--anchor-dot-fill)" stroke="var(--anchor-dot-stroke)" stroke-width="1.2" /></g>`;
     }
 
-    if (!hideAllAnchors && !rawRightOnly && node.hasInputAnchor && !isSmelter && !isBBM) {
+    // Left anchor (input) - draw for eligible nodes
+    if (node.hasInputAnchor && !isSmelter && !isBBM) {
       const a = anchorLeftPos(node);
       helperMap.set(`${node.id}:left`, a);
       inner += `<line class="node-to-helper" data-node="${escapeHtml(node.id)}" data-side="left" x1="${roundCoord(node.x - nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" stroke="${defaultLineColor}" stroke-width="1.2" />`;
       inner += `<g class="helper-dot helper-input" data-node="${escapeHtml(node.id)}" data-side="left" transform="translate(${a.x},${a.y})" aria-hidden="true"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
+      inner += `<g class="anchor anchor-left" data-node="${escapeHtml(node.id)}" data-side="left" transform="translate(${a.x},${a.y})" tabindex="0" role="button" aria-label="Input anchor for ${escapeHtml(node.label)}"><circle class="anchor-hit" cx="0" cy="0" r="${ANCHOR_HIT_RADIUS}" fill="transparent" pointer-events="all" /><circle class="anchor-dot" cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--anchor-dot-fill)" stroke="var(--anchor-dot-stroke)" stroke-width="1.2" /></g>`;
     }
   }
 
@@ -997,7 +999,7 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
-  // Node visuals (labels, circles, numbers, anchors)
+  // Node visuals (labels, circles, numbers)
   for (const node of nodes) {
     const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
     const strokeColor = "#2c3e50";
@@ -1006,12 +1008,8 @@ function renderGraph(nodes, links, rootItem) {
     const labelPaddingX = 10;
     const labelPaddingY = 8;
 
-    const hideAllAnchors = (node.raw && node.depth === minDepth);
     const isSmelter = (node.building === 'Smelter');
     const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
-    const rawRightOnly = !!(node.raw && node.depth !== minDepth);
-    const showLeftAnchor = !hideAllAnchors && !rawRightOnly && node.hasInputAnchor && !isSmelter && !isBBM;
-    const showRightAnchor = !hideAllAnchors && (node.hasOutputAnchor || rawRightOnly || isBBM) && (node.depth !== maxDepth);
 
     const approxCharWidth = 7;
     const labelBoxWidth = Math.max(48, Math.ceil(labelText.length * approxCharWidth) + labelPaddingX * 2);
@@ -1026,16 +1024,6 @@ function renderGraph(nodes, links, rootItem) {
     inner += `<circle class="graph-node-circle" data-id="${escapeHtml(node.id)}" cx="${node.x}" cy="${node.y}" r="${nodeRadius}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" />`;
     inner += node.raw ? '' : `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20" fill="${fillColor}" rx="4" ry="4" pointer-events="none" />`;
     inner += `<text class="nodeNumber" x="${node.x}" y="${node.y}" text-anchor="middle" font-size="13" font-weight="700" fill="var(--label-text-fill)" stroke="var(--label-text-stroke)" stroke-width="0.6" paint-order="stroke" pointer-events="none">${node.raw ? '' : Math.ceil(node.machines)}</text>`;
-
-    if (showLeftAnchor) {
-      const a = anchorLeftPos(node);
-      inner += `<g class="anchor anchor-left" data-node="${escapeHtml(node.id)}" data-side="left" transform="translate(${a.x},${a.y})" tabindex="0" role="button" aria-label="Input anchor for ${escapeHtml(node.label)}"><circle class="anchor-hit" cx="0" cy="0" r="${ANCHOR_HIT_RADIUS}" fill="transparent" pointer-events="all" /><circle class="anchor-dot" cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--anchor-dot-fill)" stroke="var(--anchor-dot-stroke)" stroke-width="1.2" /></g>`;
-    }
-    if (showRightAnchor) {
-      const a = anchorRightPos(node);
-      inner += `<g class="anchor anchor-right" data-node="${escapeHtml(node.id)}" data-side="right" transform="translate(${a.x},${a.y})" tabindex="0" role="button" aria-label="Output anchor for ${escapeHtml(node.label)}"><circle class="anchor-hit" cx="0" cy="0" r="${ANCHOR_HIT_RADIUS}" fill="transparent" pointer-events="all" /><circle class="anchor-dot" cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--anchor-dot-fill)" stroke="var(--anchor-dot-stroke)" stroke-width="1.2" /></g>`;
-    }
-
     inner += `</g>`;
   }
 
