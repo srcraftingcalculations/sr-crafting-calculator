@@ -764,342 +764,143 @@ function buildGraphData(chain, rootItem) {
 }
 
 // Deterministic renderGraph (no pulses). Drop-in replacement for the removed renderer.
-function renderGraph(nodes, links, rootItem) {
-  const nodeRadius = 22;
-  const ANCHOR_RADIUS = 5;
-  const ANCHOR_HIT_RADIUS = 12;
-  const ANCHOR_OFFSET = 18;
+// Replace computeDepthsFromTiers with this full implementation.
+// Behavior:
+// - Start from TIERS (no +1 offset).
+// - Raw items default to depth 0 (FORCED_RAW_ORES honored).
+// - Items whose inputs are all raw are treated as depth 0.
+// - LEFT_OF_CONSUMER_RAWS (e.g., Helium-3) are placed one column left of their earliest consumer.
+// - If any raw ends up at depth 0, non-raw items are shifted right by 1 so raws occupy the far-left column.
+// - The placement is iterated a few times to reach a stable layout (handles interactions between shifting and raw placement).
+function computeDepthsFromTiers(chain, rootItem) {
+  const depths = {};
+  const MAX_PASSES = 6;
 
-  function roundCoord(v) { return Math.round(v * 100) / 100; }
-  function anchorRightPos(node) { return { x: roundCoord(node.x + nodeRadius + ANCHOR_OFFSET), y: roundCoord(node.y) }; }
-  function anchorLeftPos(node)  { return { x: roundCoord(node.x - nodeRadius - ANCHOR_OFFSET), y: roundCoord(node.y) }; }
-
-  // Ensure defaults
-  for (const n of nodes) {
-    if (typeof n.hasInputAnchor === 'undefined') n.hasInputAnchor = true;
-    if (typeof n.hasOutputAnchor === 'undefined') n.hasOutputAnchor = true;
-    if (typeof n.depth === 'undefined') n.depth = 0;
-  }
-
-  const nodeById = new Map(nodes.map(n => [n.id, n]));
-  const columns = {};
-  for (const node of nodes) {
-    if (!columns[node.depth]) columns[node.depth] = [];
-    columns[node.depth].push(node);
-  }
-  const depthsSorted = Object.keys(columns).map(Number).sort((a,b)=>a-b);
-  const _depthIndex = new Map(depthsSorted.map((d,i)=>[d,i]));
-
-  // Layout nodes in columns and rows
-  for (const [depth, colNodes] of Object.entries(columns)) {
-    colNodes.sort((a,b) => String(a.label || a.id).localeCompare(String(b.label || b.id), undefined, { sensitivity: 'base' }));
-    const idx = _depthIndex.get(Number(depth)) ?? 0;
-    colNodes.forEach((node, i) => {
-      node.x = roundCoord(idx * MACHINE_COL_WIDTH + 100);
-      node.y = roundCoord(i * GRAPH_ROW_HEIGHT + 100);
-    });
-  }
-
-  const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
-  const minX = nodes.length ? Math.min(...xs) : 0;
-  const maxX = nodes.length ? Math.max(...xs) : 0;
-  const minY = nodes.length ? Math.min(...ys) : 0;
-  const maxY = nodes.length ? Math.max(...ys) : 0;
-  const contentX = minX - nodeRadius - GRAPH_CONTENT_PAD;
-  const contentY = minY - nodeRadius - GRAPH_CONTENT_PAD;
-  const contentW = (maxX - minX) + (nodeRadius*2) + GRAPH_CONTENT_PAD*2;
-  const contentH = (maxY - minY) + (nodeRadius*2) + GRAPH_CONTENT_PAD*2;
-
-  const minDepth = nodes.length ? Math.min(...nodes.map(n => n.depth)) : 0;
-  const maxDepth = nodes.length ? Math.max(...nodes.map(n => n.depth)) : 0;
-
-  // Compute helper positions and bypass needs
-  const willRenderAnchors = [];
-  for (const node of nodes) {
-    const hideAllAnchors = (node.raw && node.depth === minDepth);
-    const isSmelter = (node.building === 'Smelter');
-    const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
-    const rawRightOnly = !!(node.raw && node.depth !== minDepth);
-
-    if (!hideAllAnchors && !rawRightOnly && node.hasInputAnchor && !isSmelter && !isBBM) {
-      willRenderAnchors.push({ side:'left', node, pos: anchorLeftPos(node) });
+  // Helper: initialize base depths from TIERS (no +1)
+  function initBaseDepths() {
+    for (const item of Object.keys(chain || {})) {
+      const tableLevel = Number(TIERS?.[item] ?? 0);
+      depths[item] = Number.isFinite(tableLevel) ? Math.floor(tableLevel) : 0;
     }
-    if (!hideAllAnchors && (node.hasOutputAnchor || rawRightOnly || isBBM) && node.depth !== maxDepth) {
-      willRenderAnchors.push({ side:'right', node, pos: anchorRightPos(node) });
-    }
-  }
 
-  const uniqueYs = Array.from(new Set(willRenderAnchors.map(a => a.pos.y))).sort((a,b)=>a-b);
-  let shortestGap = nodeRadius + ANCHOR_OFFSET;
-  if (uniqueYs.length >= 2) {
-    let sg = Infinity;
-    for (let i=1;i<uniqueYs.length;i++){
-      const gap = Math.abs(uniqueYs[i]-uniqueYs[i-1]);
-      if (gap>0 && gap<sg) sg = gap;
-    }
-    if (isFinite(sg)) shortestGap = sg;
-  }
-  shortestGap = roundCoord(shortestGap);
-
-  const needsOutputBypass = new Map();
-  for (const depth of depthsSorted) {
-    const colNodes = columns[depth] || [];
-    const outputs = colNodes.filter(n => !(n.raw && n.depth === minDepth) && (n.hasOutputAnchor || (n.id === BBM_ID || n.label === BBM_ID)) && n.depth !== maxDepth);
-    if (!outputs.length) continue;
-    const consumerDepths = new Set();
-    // NOTE: we intentionally do not create node-to-node SVG lines.
-    // The bypass detection below still uses the logical `links` if present,
-    // but no direct node->node <line> elements will be emitted.
-    for (const outNode of outputs) {
-      for (const link of links) {
-        if (link.to !== outNode.id) continue;
-        const consumer = nodeById.get(link.from);
-        if (!consumer || typeof consumer.depth !== 'number') continue;
-        if ((consumer.depth - outNode.depth) > 1) consumerDepths.add(consumer.depth);
+    // Raw defaults
+    for (const item of Object.keys(chain || {})) {
+      if (chain[item].raw) {
+        if (FORCED_RAW_ORES.includes(item)) depths[item] = 0;
+        else if (!(item in TIERS)) depths[item] = 0;
       }
     }
-    if (!consumerDepths.size) continue;
-    const topOutputNode = outputs.reduce((a,b)=> a.y < b.y ? a : b);
-    const helperCenter = anchorRightPos(topOutputNode);
-    const bypassCenterY = roundCoord(helperCenter.y - shortestGap);
-    needsOutputBypass.set(depth, { x: helperCenter.x, y: bypassCenterY, helperCenter, causingConsumers: consumerDepths });
-  }
 
-  const needsInputBypass = new Map();
-  for (const [outDepth, info] of needsOutputBypass.entries()) {
-    for (const consumerDepth of info.causingConsumers) {
-      const consumerCol = columns[consumerDepth] || [];
-      const inputNodes = consumerCol.filter(n => !(n.raw && n.depth === minDepth) && n.hasInputAnchor);
-      if (!inputNodes.length) continue;
-      const topInputNode = inputNodes.reduce((a,b)=> a.y < b.y ? a : b);
-      const topInputHelperCenter = anchorLeftPos(topInputNode);
-      if (!needsInputBypass.has(consumerDepth)) {
-        needsInputBypass.set(consumerDepth, { x: topInputHelperCenter.x, y: info.y, helperCenter: topInputHelperCenter });
+    // Heuristic: items whose inputs are all raw -> depth 0
+    for (const [item, data] of Object.entries(chain || {})) {
+      const inputs = data.inputs || {};
+      const inputNames = Object.keys(inputs);
+      if (inputNames.length > 0) {
+        const allInputsRaw = inputNames.every(inName => {
+          const inNode = chain[inName];
+          return !!(inNode && inNode.raw);
+        });
+        if (allInputsRaw) depths[item] = 0;
       }
     }
+
+    // Normalize
+    for (const k of Object.keys(depths)) {
+      let v = Number(depths[k]);
+      if (!Number.isFinite(v) || isNaN(v)) v = 0;
+      depths[k] = Math.max(0, Math.floor(v));
+    }
   }
 
-  // Expose for debugging
-  window._needsOutputBypass = needsOutputBypass;
-  window._needsInputBypass = needsInputBypass;
-  window._graphNodes = nodes;
-  window._graphLinks = links;
-
-  // Build spines
-  let spineSvg = '';
-  for (let i=0;i<depthsSorted.length;i++){
-    const depth = depthsSorted[i];
-    const colNodes = columns[depth] || [];
-    const outputAnchors = [];
-    for (const n of colNodes) {
-      if (n.raw && n.depth === minDepth) continue;
-      if ((n.hasOutputAnchor || (n.id === BBM_ID || n.label === BBM_ID)) && n.depth !== maxDepth) {
-        outputAnchors.push(anchorRightPos(n));
+  // Helper: compute earliest consumer depth for a given raw name
+  function earliestConsumerDepth(rawName) {
+    let min = Infinity;
+    for (const [consumerName, consumerData] of Object.entries(chain || {})) {
+      const inputs = consumerData.inputs || {};
+      if (Object.prototype.hasOwnProperty.call(inputs, rawName)) {
+        const d = Number(depths[consumerName] ?? (Number(TIERS?.[consumerName] ?? 0)));
+        if (Number.isFinite(d) && d < min) min = d;
       }
     }
-    if (!outputAnchors.length) continue;
-    const ysAnch = outputAnchors.map(p=>p.y);
-    const topAnchorY = Math.min(...ysAnch);
-    const bottomAnchorY = Math.max(...ysAnch);
-    const spineX = outputAnchors[0].x;
-    spineSvg += `<line class="graph-spine-vertical" x1="${spineX}" y1="${bottomAnchorY}" x2="${spineX}" y2="${topAnchorY}" stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}" stroke-width="2" />`;
-    if (i+1 < depthsSorted.length) {
-      const nextDepth = depthsSorted[i+1];
-      const nextColNodes = columns[nextDepth] || [];
-      const nextInputs = [];
-      for (const n of nextColNodes) {
-        if (n.raw && n.depth === minDepth) continue;
-        if (n.hasInputAnchor && n.building !== 'Smelter') nextInputs.push(anchorLeftPos(n));
+    return min;
+  }
+
+  // Start with base depths
+  initBaseDepths();
+
+  // Iteratively apply raw-placement and optional shifting until stable or max passes
+  for (let pass = 0; pass < MAX_PASSES; pass++) {
+    const prev = {};
+    for (const k of Object.keys(depths)) prev[k] = depths[k];
+
+    // 1) Place LEFT_OF_CONSUMER_RAWS one column left of earliest consumer (if any)
+    for (const rawName of LEFT_OF_CONSUMER_RAWS) {
+      if (!(rawName in chain)) continue;
+      const minConsumer = earliestConsumerDepth(rawName);
+      if (minConsumer === Infinity) {
+        // no consumer in this chain — keep existing or default 0
+        depths[rawName] = Math.max(0, depths[rawName] ?? 0);
+      } else {
+        // place raw immediately left of earliest consumer
+        const target = Math.max(0, Math.floor(minConsumer) - 1);
+        depths[rawName] = target;
       }
-      if (nextInputs.length) {
-        const topInY = Math.min(...nextInputs.map(p=>p.y));
-        const nextSpineX = nextInputs[0].x;
-        spineSvg += `<line class="graph-spine-horizontal" x1="${spineX}" y1="${topAnchorY}" x2="${nextSpineX}" y2="${topAnchorY}" stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}" stroke-width="2" />`;
-        spineSvg += `<line class="graph-spine-horizontal" x1="${nextSpineX}" y1="${topAnchorY}" x2="${nextSpineX}" y2="${topInY}" stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}" stroke-width="2" />`;
-        spineSvg += `<line class="graph-spine-vertical" x1="${nextSpineX}" y1="${topInY}" x2="${nextSpineX}" y2="${Math.max(...nextInputs.map(p=>p.y))}" stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}" stroke-width="2" />`;
+    }
+
+    // 2) For any raw that exists only because it's an input (i.e., present but not a table item),
+    //    ensure it sits immediately left of its earliest consumer as well.
+    for (const item of Object.keys(chain || {})) {
+      if (!chain[item].raw) continue;
+      // If this raw has consumers, place it left of earliest consumer
+      const minConsumer = earliestConsumerDepth(item);
+      if (minConsumer !== Infinity) {
+        depths[item] = Math.max(0, Math.floor(minConsumer) - 1);
+      } else {
+        // otherwise keep current/default
+        depths[item] = Math.max(0, depths[item] ?? 0);
       }
     }
-  }
 
-  // Start building inner SVG content
-  let inner = `
-    <defs>
-      <filter id="labelBackdrop" x="-40%" y="-40%" width="180%" height="180%">
-        <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="blurred" />
-        <feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#000" flood-opacity="0.25" />
-        <feComposite in="blurred" in2="SourceGraphic" operator="over" />
-      </filter>
-    </defs>
-    ${spineSvg}
-  `;
-
-  // NOTE: Node-to-node SVG edges have been removed intentionally.
-  // The code that previously emitted <line class="graph-edge"> elements is deleted.
-
-  // Node-to-helper connectors and helper dots
-  const helperMap = new Map();
-  const defaultLineColor = isDarkMode() ? '#dcdcdc' : '#444444';
-  for (const node of nodes) {
-    const hideAllAnchors = (node.raw && node.depth === minDepth);
-    const isSmelter = (node.building === 'Smelter');
-    const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
-    const rawRightOnly = !!(node.raw && node.depth !== minDepth);
-
-    if (!hideAllAnchors && (node.hasOutputAnchor || rawRightOnly || isBBM) && node.depth !== maxDepth) {
-      const a = anchorRightPos(node);
-      helperMap.set(`${node.id}:right`, a);
-      inner += `<line class="node-to-helper" data-node="${escapeHtml(node.id)}" data-side="right" x1="${roundCoord(node.x + nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" stroke="${defaultLineColor}" stroke-width="1.2" />`;
-      inner += `<g class="helper-dot helper-output" data-node="${escapeHtml(node.id)}" data-side="right" transform="translate(${a.x},${a.y})" aria-hidden="true"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
+    // 3) Normalize before deciding shift
+    for (const k of Object.keys(depths)) {
+      let v = Number(depths[k]);
+      if (!Number.isFinite(v) || isNaN(v)) v = 0;
+      depths[k] = Math.max(0, Math.floor(v));
     }
 
-    if (!hideAllAnchors && !rawRightOnly && node.hasInputAnchor && !isSmelter && !isBBM) {
-      const a = anchorLeftPos(node);
-      helperMap.set(`${node.id}:left`, a);
-      inner += `<line class="node-to-helper" data-node="${escapeHtml(node.id)}" data-side="left" x1="${roundCoord(node.x - nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" stroke="${defaultLineColor}" stroke-width="1.2" />`;
-      inner += `<g class="helper-dot helper-input" data-node="${escapeHtml(node.id)}" data-side="left" transform="translate(${a.x},${a.y})" aria-hidden="true"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
-    }
-  }
-
-  // Bypass connectors to/from spines
-  for (const [depth, info] of needsOutputBypass.entries()) {
-    inner += `<line class="bypass-to-spine bypass-output-connector" data-depth="${depth}" x1="${info.x}" y1="${info.y}" x2="${info.x}" y2="${info.helperCenter.y}" stroke="${defaultLineColor}" stroke-width="1.4" />`;
-  }
-  for (const [consumerDepth, pos] of needsInputBypass.entries()) {
-    inner += `<line class="bypass-to-spine bypass-input-connector" data-depth="${consumerDepth}" x1="${pos.x}" y1="${pos.helperCenter.y}" x2="${pos.x}" y2="${pos.y}" stroke="${defaultLineColor}" stroke-width="1.4" />`;
-  }
-  for (const [outDepth, outInfo] of needsOutputBypass.entries()) {
-    for (const consumerDepth of outInfo.causingConsumers) {
-      const inPos = needsInputBypass.get(consumerDepth);
-      if (!inPos) continue;
-      inner += `<line class="bypass-connector" data-from-depth="${outDepth}" data-to-depth="${consumerDepth}" x1="${outInfo.x}" y1="${outInfo.y}" x2="${inPos.x}" y2="${inPos.y}" stroke="${defaultLineColor}" stroke-width="1.4" />`;
-    }
-  }
-
-  // Node visuals (labels, circles, numbers, anchors)
-  for (const node of nodes) {
-    const fillColor = node.raw ? "#f4d03f" : MACHINE_COLORS[node.building] || "#95a5a6";
-    const strokeColor = "#2c3e50";
-    const labelText = String(node.label || node.id).trim();
-    const labelFontSize = 13;
-    const labelPaddingX = 10;
-    const labelPaddingY = 8;
-
-    const hideAllAnchors = (node.raw && node.depth === minDepth);
-    const isSmelter = (node.building === 'Smelter');
-    const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
-    const rawRightOnly = !!(node.raw && node.depth !== minDepth);
-    const showLeftAnchor = !hideAllAnchors && !rawRightOnly && node.hasInputAnchor && !isSmelter && !isBBM;
-    const showRightAnchor = !hideAllAnchors && (node.hasOutputAnchor || rawRightOnly || isBBM) && (node.depth !== maxDepth);
-
-    const approxCharWidth = 7;
-    const labelBoxWidth = Math.max(48, Math.ceil(labelText.length * approxCharWidth) + labelPaddingX * 2);
-    const labelBoxHeight = labelFontSize + labelPaddingY * 2;
-    const labelBoxX = roundCoord(node.x - labelBoxWidth / 2);
-    const labelBoxY = roundCoord((node.y - GRAPH_LABEL_OFFSET) - labelBoxHeight / 2);
-    const labelCenterY = roundCoord(labelBoxY + labelBoxHeight / 2);
-
-    inner += `<g class="graph-node" data-id="${escapeHtml(node.id)}" tabindex="0" role="button" aria-label="${escapeHtml(node.label)}" style="outline:none;">`;
-    inner += `<rect class="label-box" x="${labelBoxX}" y="${labelBoxY}" width="${labelBoxWidth}" height="${labelBoxHeight}" rx="6" ry="6" fill="var(--label-box-fill)" stroke="var(--label-box-stroke)" stroke-width="0.8" filter="url(#labelBackdrop)" pointer-events="none" />`;
-    inner += `<text class="nodeLabel" x="${node.x}" y="${labelCenterY}" text-anchor="middle" dominant-baseline="middle" font-size="${labelFontSize}" font-weight="700" fill="var(--label-text-fill)" stroke="var(--label-text-stroke)" stroke-width="var(--label-text-stroke-width)" paint-order="stroke" pointer-events="none">${escapeHtml(labelText)}</text>`;
-    inner += `<circle class="graph-node-circle" data-id="${escapeHtml(node.id)}" cx="${node.x}" cy="${node.y}" r="${nodeRadius}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" />`;
-    inner += node.raw ? '' : `<rect x="${node.x - 14}" y="${node.y - 10}" width="28" height="20" fill="${fillColor}" rx="4" ry="4" pointer-events="none" />`;
-    inner += `<text class="nodeNumber" x="${node.x}" y="${node.y}" text-anchor="middle" font-size="13" font-weight="700" fill="var(--label-text-fill)" stroke="var(--label-text-stroke)" stroke-width="0.6" paint-order="stroke" pointer-events="none">${node.raw ? '' : Math.ceil(node.machines)}</text>`;
-
-    if (showLeftAnchor) {
-      const a = anchorLeftPos(node);
-      inner += `<g class="anchor anchor-left" data-node="${escapeHtml(node.id)}" data-side="left" transform="translate(${a.x},${a.y})" tabindex="0" role="button" aria-label="Input anchor for ${escapeHtml(node.label)}"><circle class="anchor-hit" cx="0" cy="0" r="${ANCHOR_HIT_RADIUS}" fill="transparent" pointer-events="all" /><circle class="anchor-dot" cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--anchor-dot-fill)" stroke="var(--anchor-dot-stroke)" stroke-width="1.2" /></g>`;
-    }
-    if (showRightAnchor) {
-      const a = anchorRightPos(node);
-      inner += `<g class="anchor anchor-right" data-node="${escapeHtml(node.id)}" data-side="right" transform="translate(${a.x},${a.y})" tabindex="0" role="button" aria-label="Output anchor for ${escapeHtml(node.label)}"><circle class="anchor-hit" cx="0" cy="0" r="${ANCHOR_HIT_RADIUS}" fill="transparent" pointer-events="all" /><circle class="anchor-dot" cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--anchor-dot-fill)" stroke="var(--anchor-dot-stroke)" stroke-width="1.2" /></g>`;
-    }
-
-    inner += `</g>`;
-  }
-
-  // Bypass helper dots (visual)
-  for (const [depth, info] of needsOutputBypass.entries()) {
-    inner += `<g class="bypass-dot bypass-output" data-depth="${depth}" transform="translate(${info.x},${info.y})" aria-hidden="true"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
-  }
-  for (const [consumerDepth, pos] of needsInputBypass.entries()) {
-    inner += `<g class="bypass-dot bypass-input" data-depth="${consumerDepth}" transform="translate(${pos.x},${pos.y})" aria-hidden="true"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
-  }
-
-  const dark = !!(typeof isDarkMode === 'function' ? isDarkMode() : false);
-  const initialVars = {
-    '--line-color': dark ? '#dcdcdc' : '#444444',
-    '--spine-color': dark ? '#bdbdbd' : '#666666',
-    '--raw-edge-color': '#333333',
-    '--label-box-fill': dark ? 'rgba(0,0,0,0.88)' : 'rgba(255,255,255,0.92)',
-    '--label-box-stroke': dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-    '--label-text-fill': dark ? '#ffffff' : '#111111',
-    '--label-text-stroke': dark ? '#000000' : '#ffffff',
-    '--label-text-stroke-width': dark ? '1.0' : '0.6',
-    '--anchor-dot-fill': dark ? '#ffffff' : '#2c3e50',
-    '--anchor-dot-stroke': dark ? '#000000' : '#ffffff',
-    '--bypass-fill': dark ? '#ffffff' : '#2c3e50',
-    '--bypass-stroke': dark ? '#000000' : '#ffffff'
-  };
-  const wrapperStyle = Object.entries(initialVars).map(([k,v]) => `${k}:${v}`).join(';');
-
-  const viewBoxX = Math.floor(contentX);
-  const viewBoxY = Math.floor(contentY);
-  const viewBoxW = Math.ceil(contentW);
-  const viewBoxH = Math.ceil(contentH);
-
-  const html = `<div class="graphWrapper" data-vb="${viewBoxX},${viewBoxY},${viewBoxW},${viewBoxH}" style="${wrapperStyle}"><div class="graphViewport"><svg xmlns="http://www.w3.org/2000/svg" class="graphSVG" viewBox="${viewBoxX} ${viewBoxY} ${viewBoxW} ${viewBoxH}" preserveAspectRatio="xMidYMid meet"><g id="zoomLayer">${inner}</g></svg></div></div>`;
-
-  // Theme observer kept as before if needed
-  (function installThemeObserverOnce(){
-    if (window._graphThemeObserverInstalled) return;
-    window._graphThemeObserverInstalled = true;
-    function computeVarsFromTheme() {
-      const darkNow = !!(typeof isDarkMode === 'function' ? isDarkMode() : false);
-      return {
-        '--line-color': darkNow ? '#dcdcdc' : '#444444',
-        '--spine-color': darkNow ? '#bdbdbd' : '#666666',
-        '--raw-edge-color': '#333333',
-        '--label-box-fill': darkNow ? 'rgba(0,0,0,0.88)' : 'rgba(255,255,255,0.92)',
-        '--label-box-stroke': darkNow ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-        '--label-text-fill': darkNow ? '#ffffff' : '#111111',
-        '--label-text-stroke': darkNow ? '#000000' : '#ffffff',
-        '--label-text-stroke-width': darkNow ? '1.0' : '0.6',
-        '--anchor-dot-fill': darkNow ? '#ffffff' : '#2c3e50',
-        '--anchor-dot-stroke': darkNow ? '#000000' : '#ffffff',
-        '--bypass-fill': darkNow ? '#ffffff' : '#2c3e50',
-        '--bypass-stroke': darkNow ? '#000000' : '#ffffff'
-      };
-    }
-    function updateAllGraphWrappers() {
-      const vars = computeVarsFromTheme();
-      const wrappers = document.querySelectorAll('.graphWrapper');
-      wrappers.forEach(w => {
-        for (const [k, v] of Object.entries(vars)) w.style.setProperty(k, v);
-      });
-    }
-    const target = document.documentElement || document.body;
-    try {
-      const mo = new MutationObserver(mutations => {
-        for (const m of mutations) {
-          if (m.type === 'attributes' && (m.attributeName === 'class' || m.attributeName === 'data-theme' || m.attributeName === 'theme')) {
-            updateAllGraphWrappers();
-            return;
-          }
-        }
-      });
-      mo.observe(target, { attributes: true, attributeFilter: ['class','data-theme','theme'] });
-      if (window.matchMedia) {
-        const mq = window.matchMedia('(prefers-color-scheme: dark)');
-        if (typeof mq.addEventListener === 'function') mq.addEventListener('change', updateAllGraphWrappers);
-        else if (typeof mq.addListener === 'function') mq.addListener(updateAllGraphWrappers);
+    // 4) If any raw is at depth 0, enforce raw-left rule: set all raws to 0 and shift non-raw +1
+    const rawItems = Object.keys(chain || {}).filter(i => chain[i] && chain[i].raw);
+    const anyRawAtZero = rawItems.length > 0 && rawItems.some(r => depths[r] === 0);
+    if (anyRawAtZero) {
+      for (const r of rawItems) depths[r] = 0;
+      for (const k of Object.keys(depths)) {
+        if (!(chain[k] && chain[k].raw)) depths[k] = Math.max(0, Math.floor(depths[k]) + 1);
       }
-      window._updateGraphThemeVars = updateAllGraphWrappers;
-    } catch (e) {
-      window._updateGraphThemeVars = updateAllGraphWrappers;
     }
-  })();
 
-  return html;
+    // 5) Final normalization for this pass
+    for (const k of Object.keys(depths)) {
+      let v = Number(depths[k]);
+      if (!Number.isFinite(v) || isNaN(v)) v = 0;
+      depths[k] = Math.max(0, Math.floor(v));
+    }
+
+    // 6) If stable, break early
+    let stable = true;
+    for (const k of Object.keys(depths)) {
+      if (prev[k] !== depths[k]) { stable = false; break; }
+    }
+    if (stable) break;
+  }
+
+  // Final clamp and return
+  for (const k of Object.keys(depths)) {
+    let v = Number(depths[k]);
+    if (!Number.isFinite(v) || isNaN(v)) v = 0;
+    depths[k] = Math.max(0, Math.floor(v));
+  }
+
+  return depths;
 }
 
 // Minimal guarded attachNodePointerHandlers that does not trigger pulses
