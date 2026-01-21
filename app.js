@@ -1006,32 +1006,19 @@ function renderGraph(nodes, links, rootItem) {
   // ---------------------------------
   // HORIZONTAL TOP CONNECTIONS (→)
   // ---------------------------------
-
-  // group RIGHT helpers by column X
-  const helpersByX = {};
-  for (const h of rightHelpers) {
-    if (!helpersByX[h.x]) helpersByX[h.x] = [];
-    helpersByX[h.x].push(h);
-  }
-
-  // sorted column X positions (left → right)
-  const columnXs = Object.keys(helpersByX)
+  const depths = Object.keys(rightByDepth)
     .map(Number)
     .sort((a, b) => a - b);
 
-  // connect adjacent columns
-  for (let i = 0; i < columnXs.length - 1; i++) {
-    const x1 = columnXs[i];
-    const x2 = columnXs[i + 1];
+  for (const d of depths) {
+    const fromCol = rightByDepth[d];
+    const toCol   = leftByDepth[d + 1];
 
-    const colA = helpersByX[x1].sort((a, b) => a.y - b.y);
-    const colB = helpersByX[x2].sort((a, b) => a.y - b.y);
-
-    if (!colA.length || !colB.length) continue;
+    if (!fromCol || !toCol) continue;
 
     // TOP helper in each column
-    const from = colA[0];
-    const to = colB[0];
+    const from = fromCol.sort((a, b) => a.y - b.y)[0];
+    const to   = toCol.sort((a, b) => a.y - b.y)[0];
 
     const y = from.y;
     const midX = (from.x + to.x) / 2;
@@ -1045,7 +1032,7 @@ function renderGraph(nodes, links, rootItem) {
         stroke-width="1.6" />
     `;
 
-    // right-pointing arrow (perfectly centered)
+    // centered right-pointing arrow
     inner += `
       <polygon
         points="
