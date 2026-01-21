@@ -917,16 +917,19 @@ function renderGraph(nodes, links, rootItem) {
 
     // OUTPUT GROUPING VERTICAL SPINE (WITH UP ARROW AT FLOW EXIT)
     if (bottomAnchorY > topAnchorY) {
+
+      const SPINE_ARROW_CLEARANCE = ANCHOR_RADIUS + 6;
+
       spineSvg += `
         <line
           class="graph-spine-vertical graph-spine-output-group"
           x1="${spineX}"
           y1="${bottomAnchorY}"
           x2="${spineX}"
-          y2="${topAnchorY}"
+          y2="${topAnchorY - SPINE_ARROW_CLEARANCE}"
           stroke="${isDarkMode() ? '#bdbdbd' : '#666666'}"
           stroke-width="2"
-          marker-start="url(#spineArrowUp)"
+          marker-end="url(#spineArrowUp)"
         />
       `;
     }
