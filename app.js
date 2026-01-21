@@ -883,6 +883,9 @@ function renderGraph(nodes, links, rootItem) {
     return false;
   }
 
+  // We'll collect arrow fragments and append them after nodes so arrows render on top
+  const arrowFragments = [];
+
   const needsOutputBypass = new Map();
   for (const depth of depthsSorted) {
     const colNodes = columns[depth] || [];
@@ -999,7 +1002,6 @@ function renderGraph(nodes, links, rootItem) {
       } else if (b.raw && b.depth === minDepth) {
         src = b; dst = a;
       } else {
-        // neither endpoint qualifies as a raw in the far-left column; skip
         continue;
       }
 
@@ -1015,9 +1017,9 @@ function renderGraph(nodes, links, rootItem) {
       const stroke = isRawDirect ? rawLineColor : lineColor;
       const width = isRawDirect ? 2.6 : 1.6;
 
-      // Draw the line and add a midpoint arrow
+      // Draw the line (no helper arrows here). Queue midpoint arrow to render later (on top).
       inner += `<line class="graph-edge direct-node-line" data-from="${escapeHtml(src.id)}" data-to="${escapeHtml(dst.id)}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" />`;
-      inner += arrowAtMidpoint(x1, y1, x2, y2, stroke, 7);
+      arrowFragments.push(arrowAtMidpoint(x1, y1, x2, y2, stroke, 7));
     }
   })();
 
@@ -1067,8 +1069,8 @@ function renderGraph(nodes, links, rootItem) {
       emittedBypassPairs.add(pairKey);
 
       inner += `<line class="bypass-connector" data-from-depth="${outDepth}" data-to-depth="${consumerDepth}" x1="${outInfo.x}" y1="${outInfo.y}" x2="${inPos.x}" y2="${inPos.y}" stroke="${defaultLineColor}" stroke-width="1.4" />`;
-      // Arrow in the middle for bypass diagonal flows (single arrow per pair)
-      inner += arrowAtMidpoint(outInfo.x, outInfo.y, inPos.x, inPos.y, defaultLineColor, 6);
+      // Queue arrow fragment for later so it renders on top of nodes
+      arrowFragments.push(arrowAtMidpoint(outInfo.x, outInfo.y, inPos.x, inPos.y, defaultLineColor, 6));
     }
   }
 
@@ -1103,6 +1105,11 @@ function renderGraph(nodes, links, rootItem) {
   }
   for (const [consumerDepth, pos] of needsInputBypass.entries()) {
     inner += `<g class="bypass-dot bypass-input" data-depth="${consumerDepth}" transform="translate(${pos.x},${pos.y})" aria-hidden="true"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
+  }
+
+  // Append queued arrow fragments last so arrows render on top of nodes and helper dots
+  if (arrowFragments.length) {
+    inner += arrowFragments.join('');
   }
 
   const dark = !!(typeof isDarkMode === 'function' ? isDarkMode() : false);
