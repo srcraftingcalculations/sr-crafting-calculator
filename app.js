@@ -771,9 +771,12 @@ function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
   const ANCHOR_RADIUS = 5;
   const ANCHOR_OFFSET = 18;
+
   const ARROW_HALF_WIDTH = 5;
   const ARROW_HEIGHT = 8;
-  const ARROW_VISUAL_OFFSET = ARROW_HEIGHT / 2 +2;
+  const ARROW_CENTER_ADJUST = ARROW_HEIGHT / 3;
+  const ARROW_GAP_FROM_LABEL = 6;
+
   const LABEL_OFFSET = 6;
 
   function roundCoord(v) { return Math.round(v * 100) / 100; }
@@ -930,7 +933,11 @@ function renderGraph(nodes, links, rootItem) {
 
       // arrow — short vertical segment, centered & lifted
       const midY = (y1 + y2) / 2;
-      const arrowY = midY + ARROW_VISUAL_OFFSET;
+      const arrowY =
+        midY +
+        ARROW_VISUAL_OFFSET +
+        ARROW_CENTER_ADJUST +
+        ARROW_GAP_FROM_LABEL;
 
       inner += `
         <polygon    
@@ -975,7 +982,11 @@ function renderGraph(nodes, links, rootItem) {
 
       // arrow — SAME OFFSET MAGNITUDE as output, inverted direction
       const midY = (y1 + y2) / 2;
-      const arrowY = midY - ARROW_VISUAL_OFFSET;
+      const arrowY =
+        midY -
+        ARROW_VISUAL_OFFSET -
+        ARROW_CENTER_ADJUST -
+        ARROW_GAP_FROM_LABEL;
 
       inner += `
         <polygon
