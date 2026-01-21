@@ -1005,7 +1005,7 @@ function renderGraph(nodes, links, rootItem) {
       <g>
         <rect
           x="${node.x - width/2}"
-          y="${node.y - nodeRadius - LABEL_OFFSET - height / 2}"
+          y="${node.y - nodeRadius - LABEL_OFFSET - height}"
           width="${width}"
           height="${height}"
           rx="6"
