@@ -498,8 +498,9 @@ function renderGraph(nodes, links, rootItem) {
   }
   for (const [depth, colNodes] of Object.entries(columns)) {
     colNodes.sort((a,b) => (String(a.label||a.id)).localeCompare(String(b.label||b.id), undefined, {sensitivity:'base'}));
-    colNodes.forEach((node,i) => {
-      node.x = roundCoord(Number(depth) * MACHINE_COL_WIDTH + 100);
+      colNodes.forEach((node,i) => {
+      const depthIndex = depthsSorted.indexOf(Number(depth));
+      node.x = roundCoord(depthIndex * MACHINE_COL_WIDTH + 100); 
       node.y = roundCoord(i * GRAPH_ROW_HEIGHT + 100);
     });
   }
