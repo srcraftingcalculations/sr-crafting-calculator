@@ -992,7 +992,19 @@ function renderGraph(nodes, links, rootItem) {
     if (node.hasInputAnchor && !isSmelter && !isBBM && !node.raw) {
       const a = anchorLeftPos(node);
       helperMap.set(`${node.id}:left`, a);
-      inner += `<line class="node-to-helper" data-node="${escapeHtml(node.id)}" data-side="left" x1="${roundCoord(node.x - nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" stroke="${defaultLineColor}" stroke-width="1.2" />`;
+
+      // If an output bypass exists from the previous column that routes to this node's column,
+      // skip drawing the vertical node->helper connector for inputs where inputLevel = outputLevel + 1.
+      const outDepth = node.depth - 1;
+      const outBy = needsOutputBypass.get(outDepth);
+      const routedToThisDepth = outBy && outBy.causingConsumers && outBy.causingConsumers.has(node.depth);
+
+      // Draw the short vertical connector only when there is no bypass routing into this input column
+      if (!routedToThisDepth) {
+        inner += `<line class="node-to-helper" data-node="${escapeHtml(node.id)}" data-side="left" x1="${roundCoord(node.x - nodeRadius)}" y1="${node.y}" x2="${a.x}" y2="${a.y}" stroke="${defaultLineColor}" stroke-width="1.2" />`;
+      }
+
+      // Still render the helper dot and anchor so the input anchor remains visible and interactive.
       inner += `<g class="helper-dot helper-input" data-node="${escapeHtml(node.id)}" data-side="left" transform="translate(${a.x},${a.y})" aria-hidden="true"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
       inner += `<g class="anchor anchor-left" data-node="${escapeHtml(node.id)}" data-side="left" transform="translate(${a.x},${a.y})" tabindex="0" role="button" aria-label="Input anchor for ${escapeHtml(node.label)}"><circle class="anchor-hit" cx="0" cy="0" r="${ANCHOR_HIT_RADIUS}" fill="transparent" pointer-events="all" /><circle class="anchor-dot" cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--anchor-dot-fill)" stroke="var(--anchor-dot-stroke)" stroke-width="1.2" /></g>`;
     }
