@@ -335,7 +335,8 @@ function buildGraphData(chain, rootItem) {
 
 /**
  * renderGraph (center-to-center; left/right anchors only; BBM in smelter column;
- * smelter input suppressed; raw nodes off far-left get right-only anchors)
+ * smelter input suppressed; raw nodes off far-left get right-only anchors;
+ * visible helper dots are connected to their nodes)
  *
  * - Uses only left/right anchors (no top anchors)
  * - BBM is placed in the smelter column (or fallback smelter outputs)
@@ -624,6 +625,39 @@ function renderGraph(nodes, links, rootItem) {
         <line class="bypass-connector" data-from-depth="${outDepth}" data-to-depth="${consumerDepth}"
               x1="${outInfo.x}" y1="${outInfo.y}" x2="${inPos.x}" y2="${inPos.y}"
               stroke="${isDark ? '#ddd' : '#444'}" stroke-width="1.6" stroke-linecap="round" opacity="0.95" />
+      `;
+    }
+  }
+
+  // --- Draw short node->anchor connectors so visible helper dots are attached to nodes ---
+  for (const node of nodes) {
+    const hideAllAnchors = (node.raw && node.depth === minDepth);
+    const isSmelter = (node.building === 'Smelter');
+    const isBBM = (node.id === BBM_ID || node.label === BBM_ID);
+    const rawRightOnly = !!(node.raw && node.depth !== minDepth);
+
+    const showLeftAnchor = !hideAllAnchors && !rawRightOnly && node.hasInputAnchor && !isSmelter && !isBBM;
+    const showRightAnchor = !hideAllAnchors && (node.hasOutputAnchor || rawRightOnly || isBBM) && (node.depth !== maxDepth);
+
+    // left connector: from node left edge to left anchor center
+    if (showLeftAnchor) {
+      const a = anchorLeftPos(node);
+      inner += `
+        <line class="node-to-anchor node-to-left" data-node="${escapeHtml(node.id)}"
+              x1="${roundCoord(node.x - nodeRadius)}" y1="${node.y}"
+              x2="${a.x}" y2="${a.y}"
+              stroke="${isDark ? '#ddd' : '#444'}" stroke-width="1.4" stroke-linecap="butt" opacity="0.95" />
+      `;
+    }
+
+    // right connector: from node right edge to right anchor center
+    if (showRightAnchor) {
+      const a = anchorRightPos(node);
+      inner += `
+        <line class="node-to-anchor node-to-right" data-node="${escapeHtml(node.id)}"
+              x1="${roundCoord(node.x + nodeRadius)}" y1="${node.y}"
+              x2="${a.x}" y2="${a.y}"
+              stroke="${isDark ? '#ddd' : '#444'}" stroke-width="1.4" stroke-linecap="butt" opacity="0.95" />
       `;
     }
   }
