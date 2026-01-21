@@ -240,7 +240,7 @@ table td {
   width: 100%;
   max-width: 100%;
   max-height: calc(100vh - 220px);
-  overflow: visible
+  overflow: hidden
   padding: 8px;
   padding-top: 12px;
   border-radius: 6px;
@@ -261,7 +261,6 @@ table td {
   user-select: none;
   -webkit-user-select: none;
   -ms-user-select: none;
-  overflow: visible;
 }
 
 /* ====== SVG line styling (ensure lines are visible) ====== */
