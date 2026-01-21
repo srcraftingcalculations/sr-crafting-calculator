@@ -10,6 +10,11 @@
 /* ===============================
    Configuration & Constants
    =============================== */
+const MACHINE_COL_WIDTH = 220;
+const GRAPH_ROW_HEIGHT = 120;
+const GRAPH_LABEL_OFFSET = 40;
+const GRAPH_CONTENT_PAD = 64;
+
 const MACHINE_COLORS = {
   "Smelter":      "#e67e22",
   "Furnace":      "#d63031",
@@ -26,11 +31,6 @@ const SPECIAL_EXTRACTORS = {
   "Goethite Ore": 400,
   "Sulphur Ore": 240
 };
-
-const GRAPH_COL_WIDTH = 220;
-const GRAPH_ROW_HEIGHT = 120;
-const GRAPH_LABEL_OFFSET = 40;
-const GRAPH_CONTENT_PAD = 64;
 
 const DRAG_THRESHOLD_PX = 8;      // desktop threshold
 const TOUCH_THRESHOLD_PX = 12;    // touch threshold
@@ -51,9 +51,71 @@ function getTextColor(bg) {
   const luminance = (0.299 * r + 0.587 * g + 0.114 * b);
   return luminance > 150 ? "#000000" : "#ffffff";
 }
+
+/* ===============================
+   Theme helpers (replaced)
+   - isDarkMode: prefer documentElement class, fallback to system preference
+   - applyThemeClass: toggle root class and update graph wrappers (via updater or fallback)
+   - DOMContentLoaded wiring for toggle button
+   =============================== */
 function isDarkMode() {
-  return document.body.classList.contains('dark') || document.body.classList.contains('dark-mode');
+  // Primary: check document root class
+  if (document.documentElement.classList.contains('dark')) return true;
+  // Fallback: respect system preference
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return true;
+  return false;
 }
+
+function applyThemeClass(dark) {
+  if (dark) document.documentElement.classList.add('dark');
+  else document.documentElement.classList.remove('dark');
+
+  // If renderGraph installed the updater, call it to refresh graph wrappers
+  if (typeof window._updateGraphThemeVars === 'function') {
+    try { window._updateGraphThemeVars(); } catch (e) { /* ignore */ }
+    return;
+  }
+
+  // Fallback: update inline CSS vars on existing .graphWrapper elements
+  const vars = {
+    '--line-color': dark ? '#dcdcdc' : '#444444',
+    '--spine-color': dark ? '#bdbdbd' : '#666666',
+    '--raw-edge-color': '#333333',
+    '--label-box-fill': dark ? 'rgba(0,0,0,0.88)' : 'rgba(255,255,255,0.92)',
+    '--label-box-stroke': dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+    '--label-text-fill': dark ? '#ffffff' : '#111111',
+    '--label-text-stroke': dark ? '#000000' : '#ffffff',
+    '--label-text-stroke-width': dark ? '1.0' : '0.6',
+    '--anchor-dot-fill': dark ? '#ffffff' : '#2c3e50',
+    '--anchor-dot-stroke': dark ? '#000000' : '#ffffff',
+    '--bypass-fill': dark ? '#ffffff' : '#2c3e50',
+    '--bypass-stroke': dark ? '#000000' : '#ffffff'
+  };
+  document.querySelectorAll('.graphWrapper').forEach(w => {
+    for (const [k, v] of Object.entries(vars)) w.style.setProperty(k, v);
+  });
+}
+
+// Wire the toggle button
+document.addEventListener('DOMContentLoaded', () => {
+  const toggle = document.getElementById('darkModeToggle');
+  if (!toggle) return;
+
+  // initialize button label and theme from current state
+  const dark = isDarkMode();
+  applyThemeClass(dark);
+  toggle.textContent = dark ? '☀️ Light Mode' : '🌙 Dark Mode';
+
+  toggle.addEventListener('click', () => {
+    const nowDark = !document.documentElement.classList.contains('dark');
+    applyThemeClass(nowDark);
+    toggle.textContent = nowDark ? '☀️ Light Mode' : '🌙 Dark Mode';
+  });
+});
+
+/* ===============================
+   Toast helper
+   =============================== */
 function showToast(message) {
   const container = document.getElementById("toastContainer");
   if (!container) return;
@@ -135,27 +197,105 @@ function showToast(message) {
 let RECIPES = {};
 let TIERS = {};
 
+async function fetchJson(url) {
+  const resp = await fetch(url, { cache: "no-store" });
+  if (!resp.ok) throw new Error(`Fetch failed: ${url} (${resp.status})`);
+  return resp.json();
+}
+
 async function loadRecipes() {
-  const url = "https://srcraftingcalculations.github.io/sr-crafting-calculator/data/recipes.json";
+  const localPath = "data/recipes.json";
+  const remotePath = "https://srcraftingcalculations.github.io/sr-crafting-calculator/data/recipes.json";
+
+  let data = null;
   try {
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) throw new Error("Failed to fetch recipes.json");
-    return await response.json();
-  } catch (err) {
-    console.error("Error loading recipes:", err);
-    const out = document.getElementById("outputArea");
-    if (out) out.innerHTML = `<p style="color:red;">Error loading recipe data. Please try again later.</p>`;
+    data = await fetchJson(localPath);
+    console.info("Loaded recipes from local data/recipes.json");
+  } catch (localErr) {
+    console.warn("Local recipes.json not found or failed to load, falling back to remote:", localErr);
+    try {
+      data = await fetchJson(remotePath);
+      console.info("Loaded recipes from remote URL");
+    } catch (remoteErr) {
+      console.error("Failed to load recipes from remote URL as well:", remoteErr);
+      const out = document.getElementById("outputArea");
+      if (out) out.innerHTML = `<p style="color:red;">Error loading recipe data. Please try again later.</p>`;
+      return {};
+    }
+  }
+
+  if (!data || typeof data !== "object") {
+    console.error("Invalid recipe data format");
     return {};
+  }
+
+  RECIPES = data;
+
+  TIERS = {};
+  for (const [name, recipe] of Object.entries(RECIPES)) {
+    if (typeof recipe.tier === "number") {
+      TIERS[name] = recipe.tier;
+      continue;
+    }
+    TIERS[name] = 0;
+  }
+
+  let changed = true;
+  for (let pass = 0; pass < 50 && changed; pass++) {
+    changed = false;
+    for (const [name, recipe] of Object.entries(RECIPES)) {
+      if (!recipe || !recipe.inputs) continue;
+      let maxInputTier = -1;
+      for (const inputName of Object.keys(recipe.inputs)) {
+        const t = TIERS[inputName] ?? 0;
+        if (t > maxInputTier) maxInputTier = t;
+      }
+      const newTier = (maxInputTier >= 0) ? (maxInputTier + 1) : 1;
+      if (TIERS[name] !== newTier) {
+        TIERS[name] = newTier;
+        changed = true;
+      }
+    }
+  }
+
+  const select = document.getElementById("itemSelect");
+  if (select) {
+    const items = Object.keys(RECIPES).sort((a,b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    const prev = select.value;
+    select.innerHTML = items.map(it => `<option value="${escapeHtml(it)}">${escapeHtml(it)}</option>`).join("");
+    if (prev && items.includes(prev)) select.value = prev;
+  }
+
+  window.RECIPES = RECIPES;
+  window.TIERS = TIERS;
+  console.info("Recipes loaded:", Object.keys(RECIPES).length, "items");
+  return RECIPES;
+}
+
+async function reloadRecipes() {
+  RECIPES = {};
+  TIERS = {};
+  await loadRecipes();
+  if (window._lastSelectedItem) {
+    const rate = window._lastSelectedRate || 60;
+    const { chain } = expandChain(window._lastSelectedItem, rate);
+    const graph = buildGraphData(chain, window._lastSelectedItem);
+    document.getElementById('graphArea').innerHTML = renderGraph(graph.nodes, graph.links, window._lastSelectedItem);
+    attachNodePointerHandlers(document.querySelector('.graphWrapper'));
   }
 }
 
+document.addEventListener('DOMContentLoaded', () => {
+  loadRecipes().catch(err => console.error("loadRecipes error:", err));
+});
+
+/* ===============================
+   Expand production chain & graph data
+   =============================== */
 function getRecipe(name) {
   return RECIPES[name] || null;
 }
 
-/* ===============================
-   Expand production chain
-   =============================== */
 function expandChain(item, targetRate) {
   const chain = {};
   const machineTotals = {};
@@ -222,9 +362,6 @@ function expandChain(item, targetRate) {
   return { chain, machineTotals, extractorTotals };
 }
 
-/* ===============================
-   Depth computation & graph data
-   =============================== */
 function computeDepths(chain, rootItem) {
   const consumers = {};
   const depths = {};
@@ -333,15 +470,12 @@ function buildGraphData(chain, rootItem) {
   document.head.appendChild(style);
 })();
 
-/**
- * renderGraph
- * - Uses CSS variables so SVG labels, boxes, and lines update automatically on theme change
- * - Installs a single global observer (once) that updates all .graphWrapper variables
- * - Centers label text inside a blurred/opaque backdrop for readability
- *
- * Assumes globals: GRAPH_COL_WIDTH, GRAPH_ROW_HEIGHT, GRAPH_CONTENT_PAD,
- * GRAPH_LABEL_OFFSET, MACHINE_COLORS, isDarkMode(), escapeHtml(), getTextColor()
- */
+/* ===============================
+   renderGraph (full)
+   - Uses CSS variables for colors and label box
+   - Connects visible helper dots to their node via short lines
+   - Implements rule: any raw material listed in any column except far-left gets right helper only
+   =============================== */
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
   const ANCHOR_RADIUS = 5;
@@ -353,14 +487,12 @@ function renderGraph(nodes, links, rootItem) {
   function anchorRightPos(node) { return { x: roundCoord(node.x + nodeRadius + ANCHOR_OFFSET), y: roundCoord(node.y) }; }
   function anchorLeftPos(node)  { return { x: roundCoord(node.x - nodeRadius - ANCHOR_OFFSET), y: roundCoord(node.y) }; }
 
-  // defaults
   for (const n of nodes) {
     if (typeof n.hasInputAnchor === 'undefined') n.hasInputAnchor = true;
     if (typeof n.hasOutputAnchor === 'undefined') n.hasOutputAnchor = true;
     if (typeof n.depth === 'undefined') n.depth = 0;
   }
 
-  // place BBM in smelter column (prefer building === 'Smelter', fallback to canonical outputs)
   const bbmNode = nodes.find(n => n.id === BBM_ID || n.label === BBM_ID);
   if (bbmNode) {
     const smelterDepths = nodes.filter(n => n.building === 'Smelter').map(n => n.depth);
@@ -376,7 +508,6 @@ function renderGraph(nodes, links, rootItem) {
 
   const nodeById = new Map(nodes.map(n => [n.id, n]));
 
-  // group by depth and layout
   const columns = {};
   for (const node of nodes) {
     if (!columns[node.depth]) columns[node.depth] = [];
@@ -385,12 +516,11 @@ function renderGraph(nodes, links, rootItem) {
   for (const [depth, colNodes] of Object.entries(columns)) {
     colNodes.sort((a,b) => (String(a.label||a.id)).localeCompare(String(b.label||b.id), undefined, {sensitivity:'base'}));
     colNodes.forEach((node,i) => {
-      node.x = roundCoord(Number(depth) * GRAPH_COL_WIDTH + 100);
+      node.x = roundCoord(Number(depth) * MACHINE_COL_WIDTH + 100);
       node.y = roundCoord(i * GRAPH_ROW_HEIGHT + 100);
     });
   }
 
-  // bounds
   const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
   const minX = nodes.length ? Math.min(...xs) : 0;
   const maxX = nodes.length ? Math.max(...xs) : 0;
@@ -404,7 +534,7 @@ function renderGraph(nodes, links, rootItem) {
   const minDepth = nodes.length ? Math.min(...nodes.map(n => n.depth)) : 0;
   const maxDepth = nodes.length ? Math.max(...nodes.map(n => n.depth)) : 0;
 
-  // decide anchors (new rule: raw nodes not in far-left => right-only)
+  // decide anchors (raw nodes not in far-left => right-only)
   const willRenderAnchors = [];
   for (const node of nodes) {
     const hideAllAnchors = (node.raw && node.depth === minDepth);
@@ -420,7 +550,6 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
-  // shortest gap for bypass placement
   const uniqueYs = Array.from(new Set(willRenderAnchors.map(a => a.pos.y))).sort((a,b)=>a-b);
   let shortestGap = nodeRadius + ANCHOR_OFFSET;
   if (uniqueYs.length >= 2) {
@@ -433,7 +562,6 @@ function renderGraph(nodes, links, rootItem) {
   }
   shortestGap = roundCoord(shortestGap);
 
-  // compute bypass centers
   const depthsSorted = Object.keys(columns).map(d=>Number(d)).sort((a,b)=>a-b);
   const needsOutputBypass = new Map();
   for (const depth of depthsSorted) {
@@ -470,7 +598,6 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
-  // expose for debugging
   window._needsOutputBypass = needsOutputBypass;
   window._needsInputBypass = needsInputBypass;
   window._graphNodes = nodes;
@@ -513,7 +640,6 @@ function renderGraph(nodes, links, rootItem) {
     }
   })();
 
-  // defs and initial inner
   let inner = `
     <defs>
       <filter id="labelBackdrop" x="-40%" y="-40%" width="180%" height="180%">
@@ -620,7 +746,6 @@ function renderGraph(nodes, links, rootItem) {
     inner += `<g class="bypass-dot bypass-input" data-depth="${consumerDepth}" transform="translate(${pos.x},${pos.y})" aria-hidden="false"><circle cx="0" cy="0" r="${ANCHOR_RADIUS}" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
   }
 
-  // initial CSS vars from current theme
   const dark = !!(typeof isDarkMode === 'function' ? isDarkMode() : false);
   const initialVars = {
     '--line-color': dark ? '#dcdcdc' : '#444444',
@@ -672,30 +797,34 @@ function renderGraph(nodes, links, rootItem) {
       const vars = computeVarsFromTheme();
       const wrappers = document.querySelectorAll('.graphWrapper');
       wrappers.forEach(w => {
-        for (const [k,v] of Object.entries(vars)) w.style.setProperty(k, v);
+        for (const [k, v] of Object.entries(vars)) w.style.setProperty(k, v);
       });
     }
 
-    // observe documentElement attribute changes (class/data-theme/theme)
+    // Observe documentElement attribute changes (class/data-theme/theme)
     const target = document.documentElement || document.body;
-    const mo = new MutationObserver(mutations => {
-      for (const m of mutations) {
-        if (m.type === 'attributes' && (m.attributeName === 'class' || m.attributeName === 'data-theme' || m.attributeName === 'theme')) {
-          updateAllGraphWrappers();
-          return;
-        }
-      }
-    });
     try {
-      mo.observe(target, { attributes: true, attributeFilter: ['class','data-theme','theme'] });
+      const mo = new MutationObserver(mutations => {
+        for (const m of mutations) {
+          if (m.type === 'attributes' && (m.attributeName === 'class' || m.attributeName === 'data-theme' || m.attributeName === 'theme')) {
+            updateAllGraphWrappers();
+            return;
+          }
+        }
+      });
+      mo.observe(target, { attributes: true, attributeFilter: ['class', 'data-theme', 'theme'] });
+
+      // Also listen to system preference changes
       if (window.matchMedia) {
         const mq = window.matchMedia('(prefers-color-scheme: dark)');
         if (typeof mq.addEventListener === 'function') mq.addEventListener('change', updateAllGraphWrappers);
         else if (typeof mq.addListener === 'function') mq.addListener(updateAllGraphWrappers);
       }
-      // expose manual trigger
+
+      // Expose manual trigger
       window._updateGraphThemeVars = updateAllGraphWrappers;
     } catch (e) {
+      // Fallback: expose manual trigger only
       window._updateGraphThemeVars = updateAllGraphWrappers;
     }
   })();
@@ -1239,31 +1368,19 @@ function runCalculator() {
 }
 
 /* ===============================
-   Dark mode toggle
+   Dark mode toggle (legacy setup removed; replaced by new helpers above)
    =============================== */
-function setupDarkMode() {
-  const toggle = document.getElementById("darkModeToggle");
-  if (!toggle) return;
-  const saved = localStorage.getItem("darkMode");
-  if (saved === "true") {
-    document.body.classList.add("dark");
-    toggle.textContent = "☀️ Light Mode";
-  } else {
-    toggle.textContent = "🌙 Dark Mode";
-  }
-  toggle.addEventListener("click", () => {
-    const isDark = document.body.classList.toggle("dark");
-    localStorage.setItem("darkMode", isDark);
-    toggle.textContent = isDark ? "☀️ Light Mode" : "🌙 Dark Mode";
-  });
-}
+/* (setupDarkMode removed — replaced by isDarkMode/applyThemeClass wiring) */
 
 /* ===============================
    Initialization
    =============================== */
 
 async function init() {
-  setupDarkMode();
+  // Initialize theme state via the new helpers
+  const dark = isDarkMode();
+  applyThemeClass(dark);
+
   const data = await loadRecipes();
   RECIPES = data;
   TIERS = data._tiers || {};
