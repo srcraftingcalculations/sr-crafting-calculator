@@ -1043,15 +1043,15 @@ function renderGraph(nodes, links, rootItem) {
 
       <!-- Spine arrow: UP (FIXED – NO CLIPPING) -->
       <marker id="spineArrowUp"
-              viewBox="0 0 8 8"
-              refX="4"
-              refY="8"
-              markerWidth="8"
-              markerHeight="8"
+              viewBox="0 0 10 10"
+              refX="5"
+              refY="5"
+              markerWidth="6"
+              markerHeight="6"
               orient="auto"
-              markerUnits="userSpaceOnUse"
+              markerUnits="strokeWidth"
               overflow="visible">
-        <path d="M0 6 L4 0 L8 6 Z" fill="var(--spine-color)" />
+        <path d="M0 6 L5 0 L10 6 Z" fill="var(--spine-color)" />
       </marker>
 
       <!-- Label backdrop -->
