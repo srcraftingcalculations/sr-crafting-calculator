@@ -935,43 +935,33 @@ function renderGraph(nodes, links, rootItem) {
   `;
 
   // --- Direct node-to-node center lines (restricted, with reversed-link handling) ---
-  (function emitDirectNodeLines() {
-    const lineColor = isDarkMode() ? '#dcdcdc' : '#444444';
-    const rawLineColor = '#333333';
+  // --- Direct node-to-node center lines (data-only) ---
+(function emitDirectNodeLines() {
+  const lineColor = isDarkMode() ? '#dcdcdc' : '#444444';
+  const rawLineColor = '#333333';
+  for (const link of links || []) {
+    const src = nodeById.get(link.from);
+    const dst = nodeById.get(link.to);
+    if (!src || !dst) continue;
 
-    for (const link of links || []) {
-      const a = nodeById.get(link.from);
-      const b = nodeById.get(link.to);
-      if (!a || !b) continue;
+    // Strict data-only rules: source must be raw and in far-left column,
+    // destination must be in minDepth or minDepth+1
+    if (!src.raw) continue;
+    if (src.depth !== minDepth) continue;
+    if (!(dst.depth === minDepth || dst.depth === (minDepth + 1))) continue;
 
-      // Determine which side is raw. Prefer the explicit raw source (a.raw).
-      // If the link is reversed in data (consumer -> raw), flip it so we draw raw->consumer.
-      let src = null, dst = null;
-      if (a.raw && a.depth === minDepth) {
-        src = a; dst = b;
-      } else if (b.raw && b.depth === minDepth) {
-        // flipped link in data: treat b as source and a as destination
-        src = b; dst = a;
-      } else {
-        // neither endpoint qualifies as a raw in the far-left column; skip
-        continue;
-      }
+    const x1 = roundCoord(src.x);
+    const y1 = roundCoord(src.y);
+    const x2 = roundCoord(dst.x);
+    const y2 = roundCoord(dst.y);
 
-      // Destination must be in minDepth or minDepth+1 to be eligible
-      if (!(dst.depth === minDepth || dst.depth === (minDepth + 1))) continue;
+    const isRawDirect = (dst.building === 'Smelter' || dst.id === BBM_ID);
+    const stroke = isRawDirect ? rawLineColor : lineColor;
+    const width = isRawDirect ? 2.6 : 1.6;
 
-      const x1 = roundCoord(src.x);
-      const y1 = roundCoord(src.y);
-      const x2 = roundCoord(dst.x);
-      const y2 = roundCoord(dst.y);
-
-      const isRawDirect = (dst.building === 'Smelter' || dst.id === BBM_ID);
-      const stroke = isRawDirect ? rawLineColor : lineColor;
-      const width = isRawDirect ? 2.6 : 1.6;
-
-      inner += `<line class="graph-edge direct-node-line" data-from="${escapeHtml(src.id)}" data-to="${escapeHtml(dst.id)}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" />`;
-    }
-  })();
+    inner += `<line class="graph-edge direct-node-line" data-from="${escapeHtml(src.id)}" data-to="${escapeHtml(dst.id)}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" />`;
+  }
+})();
 
   // Node-to-helper connectors and helper dots (do not add left helper for raw nodes in far-left)
   const helperMap = new Map();
