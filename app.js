@@ -818,44 +818,24 @@ function renderGraph(nodes, links, rootItem) {
   // ---------------------------------
   // Bypass detection (HELPER DOTS)
   // ---------------------------------
+
   const bypassOutputDepths = new Set();
   const bypassInputDepths  = new Set();
 
-  // Build adjacency from existing rendered links
-  // NOTE: links are consumer -> input, so traversal goes rightward by reversing
-  const forwardAdj = new Map(); // sourceId -> Set(targetId)
+  // Links are consumer -> input
+  for (const link of links) {
+    const consumer = nodes.find(n => n.id === link.from);
+    const producer = nodes.find(n => n.id === link.to);
+    if (!consumer || !producer) continue;
 
-  for (const { from, to } of links) {
-    // to is an input; from is the consumer (to the right)
-    if (!forwardAdj.has(to)) forwardAdj.set(to, new Set());
-    forwardAdj.get(to).add(from);
-  }
+    const gap = consumer.depth - producer.depth;
 
-  // DFS to find deepest reachable consumer depth
-  function maxReachDepth(startId, visited = new Set()) {
-    if (visited.has(startId)) return -Infinity;
-    visited.add(startId);
+    if (gap > 1) {
+      // output bypass on producer column
+      bypassOutputDepths.add(producer.depth);
 
-    const node = nodes.find(n => n.id === startId);
-    if (!node) return -Infinity;
-
-    let max = node.depth;
-    const next = forwardAdj.get(startId);
-    if (!next) return max;
-
-    for (const nid of next) {
-      max = Math.max(max, maxReachDepth(nid, visited));
-    }
-
-    return max;
-  }
-
-  // Evaluate bypasses
-  for (const node of nodes) {
-    const deepest = maxReachDepth(node.id);
-    if (deepest > node.depth + 1) {
-      bypassOutputDepths.add(node.depth);
-      bypassInputDepths.add(deepest);
+      // input bypass on consumer column
+      bypassInputDepths.add(consumer.depth);
     }
   }
 
