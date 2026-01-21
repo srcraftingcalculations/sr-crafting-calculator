@@ -496,10 +496,18 @@ function renderGraph(nodes, links, rootItem) {
     if (!columns[node.depth]) columns[node.depth] = [];
     columns[node.depth].push(node);
   }
+  // Normalize populated depths so columns are evenly spaced (no huge left gap)
+  const _populatedDepths = Object.keys(columns).map(Number).filter(d => Number.isFinite(d));
+  const _minPopDepth = _populatedDepths.length ? Math.min(..._populatedDepths) : 0;
+
   for (const [depth, colNodes] of Object.entries(columns)) {
-    colNodes.sort((a,b) => (String(a.label||a.id)).localeCompare(String(b.label||b.id), undefined, {sensitivity:'base'}));
-    colNodes.forEach((node,i) => {
-      node.x = roundCoord(Number(depth) * MACHINE_COL_WIDTH + 100);
+    colNodes.sort((a, b) =>
+      String(a.label || a.id).localeCompare(String(b.label || b.id), undefined, { sensitivity: 'base' })
+    );
+
+    const normalizedIndex = Number(depth) - _minPopDepth;
+    colNodes.forEach((node, i) => {
+      node.x = roundCoord(normalizedIndex * MACHINE_COL_WIDTH + 100);
       node.y = roundCoord(i * GRAPH_ROW_HEIGHT + 100);
     });
   }
