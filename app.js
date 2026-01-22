@@ -872,15 +872,17 @@ function renderGraph(nodes, links, rootItem) {
   const rightHelpers = [];
   const leftHelpers = [];
 
-    // ---------------------------------
-    // Collect bypass dot positions
-    // ---------------------------------
-    const bypassDots = []; // { x, y, depth, side }
+  // ---------------------------------
+  // Collect bypass dot positions
+  // ---------------------------------
+  const bypassDots = []; // { x, y, depth, side }
+
+  const minDepth = Math.min(...nodes.map(n => n.depth));
+  const maxDepth = Math.max(...nodes.map(n => n.depth));
 
   for (const node of nodes) {
-    const minDepth = Math.min(...nodes.map(n=>n.depth));
-    const maxDepth = Math.max(...nodes.map(n=>n.depth));
 
+    // OUTPUT helpers (allowed for raw + non-raw)
     if (node.hasOutputAnchor && node.depth !== maxDepth) {
       const a = anchorRightPos(node);
       rightHelpers.push({ ...a, depth: node.depth });
@@ -897,7 +899,12 @@ function renderGraph(nodes, links, rootItem) {
       `;
     }
 
-    if (node.hasInputAnchor && node.depth !== minDepth) {
+    // INPUT helpers (❌ NEVER for raw nodes)
+    if (
+      node.hasInputAnchor &&
+      !node.raw &&                 // <<< CRITICAL FIX
+      node.depth !== minDepth
+    ) {
       const a = anchorLeftPos(node);
       leftHelpers.push({ ...a, depth: node.depth });
 
