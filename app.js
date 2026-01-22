@@ -1018,6 +1018,32 @@ function renderGraph(nodes, links, rootItem) {
   }
 
   // ---------------------------------
+  // Horizontal bypass rail (dot-to-dot only)
+  // ---------------------------------
+  const topBypassDots = bypassDots
+    .slice()
+    .sort((a, b) => a.depth - b.depth);
+
+  for (let i = 0; i < topBypassDots.length - 1; i++) {
+    const a = topBypassDots[i];
+    const b = topBypassDots[i + 1];
+
+    // never connect within the same column
+    if (a.depth === b.depth) continue;
+
+    inner += `
+      <line
+        x1="${a.x}"
+        y1="${a.y}"
+        x2="${b.x}"
+        y2="${b.y}"
+        stroke="${defaultLineColor}"
+        stroke-width="1.6"
+      />
+    `;
+  }
+
+  // ---------------------------------
   // HORIZONTAL TOP CONNECTIONS (RIGHT → LEFT)
   // ---------------------------------
   const rightTopByDepth = {};
@@ -1076,15 +1102,29 @@ function renderGraph(nodes, links, rootItem) {
   const verticalUnitOut = getVerticalUnit(byX);
   const verticalUnitIn  = getVerticalUnit(byXInput);
 
+  // ---------------------------------
+  // Collect bypass dot positions
+  // ---------------------------------
+  const bypassDots = []; // { x, y, depth, side }
+  
   // Output-side bypass helper dots
   for (const depth of bypassOutputDepths) {
     const h = rightTopByDepth[depth];
     if (!h) continue;
 
+    const y = h.y - verticalUnitOut;
+
+    bypassDots.push({
+      x: h.x,
+      y,
+      depth,
+      side: 'out'
+    });
+
     inner += `
       <circle
         cx="${h.x}"
-        cy="${h.y - verticalUnitOut}"
+        cy="${y}"
         r="${BYPASS_RADIUS}"
         fill="var(--bypass-fill)"
         stroke="var(--bypass-stroke)"
@@ -1098,14 +1138,46 @@ function renderGraph(nodes, links, rootItem) {
     const h = leftTopByDepth[depth];
     if (!h) continue;
 
+    const y = h.y - verticalUnitIn;
+
+    bypassDots.push({
+      x: h.x,
+      y,
+      depth,
+      side: 'in'
+    });
+
     inner += `
       <circle
         cx="${h.x}"
-        cy="${h.y - verticalUnitIn}"
+        cy="${y}"
         r="${BYPASS_RADIUS}"
         fill="var(--bypass-fill)"
         stroke="var(--bypass-stroke)"
         stroke-width="1.4"
+      />
+    `;
+  }
+
+  // ---------------------------------
+  // Connect bypass dots to vertical spines
+  // ---------------------------------
+  for (const d of bypassDots) {
+    const spine =
+      d.side === 'out'
+        ? rightTopByDepth[d.depth]
+        : leftTopByDepth[d.depth];
+
+    if (!spine) continue;
+
+    inner += `
+      <line
+        x1="${d.x}"
+        y1="${d.y}"
+        x2="${spine.x}"
+        y2="${spine.y}"
+        stroke="${defaultLineColor}"
+        stroke-width="1.6"
       />
     `;
   }
