@@ -761,6 +761,8 @@ function renderGraph(nodes, links, rootItem) {
   const LABEL_OFFSET = 6;
 
   const BYPASS_RADIUS = 5;
+  const BYPASS_Y_OFFSET = 34;
+  const BYPASS_X_INSET = 10;
 
   function roundCoord(v) { return Math.round(v * 100) / 100; }
 
@@ -822,8 +824,8 @@ function renderGraph(nodes, links, rootItem) {
 
   // Links are consumer -> input
   for (const link of links) {
-    const consumer = nodes.find(n => n.id === link.source);
-    const producer = nodes.find(n => n.id === link.target);
+    const consumer = nodes.find(n => n.id === link.from);
+    const producer = nodes.find(n => n.id === link.to);
     if (!consumer || !producer) continue;
 
     const gap = consumer.depth - producer.depth;
@@ -907,36 +909,25 @@ function renderGraph(nodes, links, rootItem) {
     }
   }
 
-    // top-most bypass nodes per column
-    const topOutputBypassNodeByDepth = {};
-    const topInputBypassNodeByDepth  = {};
+    // top-most node per column
+    const topBypassNodeByDepth = {};
 
-    // links are producer -> consumer
+    // outputs
     for (const link of links) {
-      const from = nodes.find(n => n.id === link.source); // producer
-      const to   = nodes.find(n => n.id === link.target); // consumer
+      const from = nodes.find(n => n.id === link.source);
+      const to   = nodes.find(n => n.id === link.target);
       if (!from || !to) continue;
 
-      const gap = to.depth - from.depth;
+      if (to.depth - from.depth > 1) {
+        const dOut = from.depth;
+        const dIn  = to.depth;
 
-      if (gap > 1) {
-        const outDepth = from.depth;
-        const inDepth  = to.depth;
-
-        // output-side (right helpers)
-        if (
-          !topOutputBypassNodeByDepth[outDepth] ||
-          from.y < topOutputBypassNodeByDepth[outDepth].y
-        ) {
-          topOutputBypassNodeByDepth[outDepth] = from;
+        if (!topBypassNodeByDepth[dOut] || from.y < topBypassNodeByDepth[dOut].y) {
+          topBypassNodeByDepth[dOut] = from;
         }
 
-        // input-side (left helpers)
-        if (
-          !topInputBypassNodeByDepth[inDepth] ||
-          to.y < topInputBypassNodeByDepth[inDepth].y
-        ) {
-          topInputBypassNodeByDepth[inDepth] = to;
+        if (!topBypassNodeByDepth[dIn] || to.y < topBypassNodeByDepth[dIn].y) {
+          topBypassNodeByDepth[dIn] = to;
         }
       }
     }
@@ -1069,133 +1060,52 @@ function renderGraph(nodes, links, rootItem) {
   }
 
   // ---------------------------------
-  // Collect bypass dot positions (BYPASS-ONLY HELPERS)
+  // BYPASS HELPER DOTS (TRUE HELPERS)
   // ---------------------------------
 
-  const bypassDots = []; // { x, y, depth, side }
-
-  // Build quick lookup of bypass depths
-  const isBypassOut = d => bypassOutputDepths.has(d);
-  const isBypassIn  = d => bypassInputDepths.has(d);
-
-  // Output-side bypass dots (RIGHT helpers)
-  for (const h of rightHelpers) {
-    if (!isBypassOut(h.depth)) continue;
-
-    // place dot one vertical unit above top bypass anchor
-    const y = h.y - verticalUnitOut;
-
-    bypassDots.push({
-      x: h.x,
-      y,
-      depth: h.depth,
-      side: 'out'
-    });
-
-    inner += `
-      <circle
-        cx="${h.x}"
-        cy="${y}"
-        r="${BYPASS_RADIUS}"
-        fill="var(--bypass-fill)"
-        stroke="var(--bypass-stroke)"
-        stroke-width="1.4"
-      />
-    `;
-  }
-
-  // Input-side bypass dots (LEFT helpers)
-  for (const h of leftHelpers) {
-    if (!isBypassIn(h.depth)) continue;
-
-    const y = h.y - verticalUnitIn;
-
-    bypassDots.push({
-      x: h.x,
-      y,
-      depth: h.depth,
-      side: 'in'
-    });
-
-    inner += `
-      <circle
-        cx="${h.x}"
-        cy="${y}"
-        r="${BYPASS_RADIUS}"
-        fill="var(--bypass-fill)"
-        stroke="var(--bypass-stroke)"
-        stroke-width="1.4"
-      />
-    `;
-  }
-
-  // ---------------------------------
-  // Connect bypass dots to vertical spines
-  // ---------------------------------
-
-  for (const d of bypassDots) {
-    const spine =
-      d.side === 'out'
-        ? rightTopByDepth[d.depth]
-        : leftTopByDepth[d.depth];
-
-    if (!spine) continue;
-
-    inner += `
-      <line
-        x1="${d.x}"
-        y1="${d.y}"
-        x2="${spine.x}"
-        y2="${spine.y}"
-        stroke="${defaultLineColor}"
-        stroke-width="1.6"
-      />
-    `;
-  }
-
-  // ---------------------------------
-  // Horizontal bypass rails (dot-to-dot, ordered by depth)
-  // ---------------------------------
-
-  // Group bypass dots by depth
-  const bypassDotsByDepth = {};
-  for (const d of bypassDots) {
-    if (!bypassDotsByDepth[d.depth]) {
-      bypassDotsByDepth[d.depth] = [];
+  // Compute true vertical unit per column (same spacing as spines)
+  function getVerticalUnit(helpersByX) {
+    for (const helpers of Object.values(helpersByX)) {
+      if (helpers.length >= 2) {
+        return helpers[1].y - helpers[0].y;
+      }
     }
-    bypassDotsByDepth[d.depth].push(d);
+    return GRAPH_ROW_HEIGHT; // safe fallback
   }
 
-  // Sort depths numerically
-  const bypassDepthsSorted = Object.keys(bypassDotsByDepth)
-    .map(Number)
-    .sort((a, b) => a - b);
+  const verticalUnitOut = getVerticalUnit(byX);
+  const verticalUnitIn  = getVerticalUnit(byXInput);
 
-  // Connect dots strictly left → right by depth
-  for (let i = 0; i < bypassDepthsSorted.length - 1; i++) {
-    const d1 = bypassDepthsSorted[i];
-    const d2 = bypassDepthsSorted[i + 1];
-
-    // only connect adjacent bypass columns
-    if (d2 !== d1 + 1) continue;
-
-    const dotsA = bypassDotsByDepth[d1];
-    const dotsB = bypassDotsByDepth[d2];
-
-    if (!dotsA || !dotsB) continue;
-
-    // top-most dot in each column
-    const a = dotsA.reduce((m, c) => (c.y < m.y ? c : m));
-    const b = dotsB.reduce((m, c) => (c.y < m.y ? c : m));
+  // Output-side bypass helper dots
+  for (const depth of bypassOutputDepths) {
+    const h = rightTopByDepth[depth];
+    if (!h) continue;
 
     inner += `
-      <line
-        x1="${a.x}"
-        y1="${a.y}"
-        x2="${b.x}"
-        y2="${b.y}"
-        stroke="${defaultLineColor}"
-        stroke-width="1.6"
+      <circle
+        cx="${h.x}"
+        cy="${h.y - verticalUnitOut}"
+        r="${BYPASS_RADIUS}"
+        fill="var(--bypass-fill)"
+        stroke="var(--bypass-stroke)"
+        stroke-width="1.4"
+      />
+    `;
+  }
+
+  // Input-side bypass helper dots
+  for (const depth of bypassInputDepths) {
+    const h = leftTopByDepth[depth];
+    if (!h) continue;
+
+    inner += `
+      <circle
+        cx="${h.x}"
+        cy="${h.y - verticalUnitIn}"
+        r="${BYPASS_RADIUS}"
+        fill="var(--bypass-fill)"
+        stroke="var(--bypass-stroke)"
+        stroke-width="1.4"
       />
     `;
   }
