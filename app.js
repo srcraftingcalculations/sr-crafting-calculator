@@ -888,7 +888,7 @@ function renderGraph(nodes, links, rootItem) {
       inner += `
         <line x1="${node.x + nodeRadius}" y1="${node.y}"
               x2="${a.x}" y2="${a.y}"
-              stroke="${defaultLineColor}" stroke-width="1.2" />
+              stroke="var(--line-color)" stroke-width="1.2" />
         <circle cx="${a.x}" cy="${a.y}"
                 r="${ANCHOR_RADIUS}"
                 fill="var(--bypass-fill)"
@@ -909,7 +909,7 @@ function renderGraph(nodes, links, rootItem) {
       inner += `
         <line x1="${node.x - nodeRadius}" y1="${node.y}"
               x2="${a.x}" y2="${a.y}"
-              stroke="${defaultLineColor}" stroke-width="1.2" />
+              stroke="var(--line-color)" stroke-width="1.2" />
         <circle cx="${a.x}" cy="${a.y}"
                 r="${ANCHOR_RADIUS}"
                 fill="var(--bypass-fill)"
@@ -963,7 +963,7 @@ function renderGraph(nodes, links, rootItem) {
       inner += `
         <line x1="${x}" y1="${y1}"
               x2="${x}" y2="${y2}"
-              stroke="${defaultLineColor}" stroke-width="1.6" />
+              stroke="var(--line-color)" stroke-width="1.6" />
       `;
 
       const midY = (y1 + y2) / 2;
@@ -980,7 +980,7 @@ function renderGraph(nodes, links, rootItem) {
             ${x - ARROW_HALF_WIDTH},${arrowY}
             ${x + ARROW_HALF_WIDTH},${arrowY}
           "
-          fill="${defaultLineColor}" />
+          fill="var(--line-color)" />
       `;
     }
   }
@@ -1006,7 +1006,7 @@ function renderGraph(nodes, links, rootItem) {
       inner += `
         <line x1="${x}" y1="${y1}"
               x2="${x}" y2="${y2}"
-              stroke="${defaultLineColor}" stroke-width="1.6" />
+              stroke="var(--line-color)" stroke-width="1.6" />
       `;
 
       const midY = (y1 + y2) / 2;
@@ -1022,7 +1022,7 @@ function renderGraph(nodes, links, rootItem) {
             ${x - ARROW_HALF_WIDTH},${arrowY}
             ${x + ARROW_HALF_WIDTH},${arrowY}
           "
-          fill="${defaultLineColor}" />
+          fill="var(--line-color)" />
       `;
     }
   }
@@ -1065,7 +1065,7 @@ function renderGraph(nodes, links, rootItem) {
           ${midX},${y - H_ARROW_HALF_HEIGHT}
           ${midX},${y + H_ARROW_HALF_HEIGHT}
         "
-        fill="${defaultLineColor}" />
+        fill="var(--line-color)" />
     `;
   }
 
@@ -1177,7 +1177,7 @@ function renderGraph(nodes, links, rootItem) {
               ${d.x - ARROW_HALF_WIDTH},${arrowY}
               ${d.x + ARROW_HALF_WIDTH},${arrowY}
             "
-            fill="${defaultLineColor}" />
+            fill="var(--line-color)" />
         `;
       }
 
@@ -1195,7 +1195,7 @@ function renderGraph(nodes, links, rootItem) {
               ${d.x - ARROW_HALF_WIDTH},${arrowY}
               ${d.x + ARROW_HALF_WIDTH},${arrowY}
             "
-            fill="${defaultLineColor}" />
+            fill="var(--line-color)" />
         `;
       }
     }
@@ -1234,7 +1234,7 @@ function renderGraph(nodes, links, rootItem) {
             ${midX},${a.y - H_ARROW_HALF_HEIGHT}
             ${midX},${a.y + H_ARROW_HALF_HEIGHT}
           "
-          fill="${defaultLineColor}" />
+          fill="var(--line-color)" />
       `;
     }
 
