@@ -293,7 +293,7 @@
       "Valve": 1,
       "Turbine": 1,
       "Impeller": 1,
-      "Sulfuric Acid": 3
+      "Sulphuric Acid": 3
     },
     "output": 1,
     "time": 10,
@@ -372,6 +372,16 @@
     "output": 1,
     "time": 0.5,
     "building": "Refinery"
+  },
+  "Superconductor": {
+    "inputs": {
+      "Ceramics": 7,
+      "Electromagnet": 2,
+      "Supermagnet": 8
+    },
+    "output": 1,
+    "time": 5,
+    "building": "Compounder"
   },
   "Supermagnet": {
     "inputs": {
@@ -565,6 +575,7 @@
     "Standard Ammo": 2,
     "Stator": 3,
     "Sulphuric Acid": 5,
+    "Superconductor": 9,
     "Supermagnet": 6,
     "Synthetic Resin": 7,
     "Synthetic Silicon": 3,
