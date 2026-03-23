@@ -318,16 +318,6 @@
     "time": 6,
     "building": "Fabricator"
   },
-  "Scanner": {
-    "inputs": {
-      "Lens": 2,
-      "Generator": 2,
-      "Stabilizer": 12
-    },
-    "output": 1,
-    "time": 10,
-    "building": "Assembler"
-  },
   "Shotgun Ammo": {
     "inputs": {
       "Basic Building Material": 20,
@@ -569,7 +559,6 @@
     "Pump": 7,
     "Resonator": 8,
     "Rotor": 2,
-    "Scanner": 9,
     "Shotgun Ammo": 2,
     "Stabilizer": 3,
     "Standard Ammo": 2,
