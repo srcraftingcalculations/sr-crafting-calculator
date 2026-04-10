@@ -3,11 +3,21 @@
     "inputs": {
       "Electronics": 2,
       "Stator": 1,
-      "Battery": 2
+      "Battery": 1
     },
     "output": 1,
-    "time": 6,
+    "time": 5,
     "building": "Assembler"
+  },
+  "Aerogel": {
+    "inputs": {
+      "Goethite Powder": 4,
+      "Calcium Powder": 6,
+      "Liquid Helium": 2
+    },
+    "output": 2,
+    "time": 6,
+    "building": "Compounder"
   },
   "Applicator": {
     "inputs": {
@@ -27,10 +37,20 @@
     "time": 2,
     "building": "Fabricator"
   },
+  "Basic Fuel": {
+    "inputs": {
+      "Wolfram Powder": 4,
+      "Goethite Powder": 2,
+      "Liquid Helium": 4
+    },
+    "output": 1,
+    "time": 6,
+    "building": "Compounder"
+  },
   "Battery": {
     "inputs": {
       "Inductor": 2,
-      "Electronics": 2,
+      "Electronics": 1,
       "Sulphuric Acid": 1
     },
     "output": 1,
@@ -83,9 +103,8 @@
   "Condenser": {
     "inputs": {
       "Resonator": 1,
-      "Synthetic Resin": 3,
-      "Nanofibre": 8,
-      "Pump": 3
+      "Pump": 3,
+      "Nanofibre": 8
     },
     "output": 1,
     "time": 15,
@@ -95,7 +114,7 @@
     "inputs": {
       "Electromagnetic Coil": 3,
       "Synthetic Resin": 3,
-      "Accumulator": 2
+      "Accumulator": 1
     },
     "output": 1,
     "time": 5,
@@ -122,6 +141,25 @@
     "time": 5,
     "building": "Furnace"
   },
+  "Epoxy": {
+    "inputs": {
+      "Liquid Helium": 1,
+      "Goethite Powder": 3,
+      "Synthetic Resin": 1
+    },
+    "output": 2,
+    "time": 3,
+    "building": "Compounder"
+  },
+  "Explosive Charge": {
+    "inputs": {
+      "Reinforced Housing": 2,
+      "Epoxy": 1
+    },
+    "output": 1,
+    "time": 6,
+    "building": "Assembler"
+  },
   "Generator": {
     "inputs": {
       "Turbine": 1,
@@ -143,11 +181,31 @@
   },
   "Goethite Ingot": {
     "inputs": {
-      "Goethite Ore": 3
+      "Goethite Ore": 1
     },
-    "output": 1,
-    "time": 1,
+    "output": 10,
+    "time": 4,
     "building": "Pyro Forge"
+  },
+  "Goethite Lattice": {
+    "inputs": {
+      "Goethite Ingot": 2,
+      "Titanoferrite Ingot": 2,
+      "Wolfram Steel Ingot": 2
+    },
+    "output": 2,
+    "time": 3,
+    "building": "Mega Press"
+  },
+  "Goethite Powder": {
+    "inputs": {
+      "Goethite Ingot": 1,
+      "Pressurized Helium": 1,
+      "Calcium Powder": 1
+    },
+    "output": 4,
+    "time": 2,
+    "building": "Compounder"
   },
   "Hardening Agent": {
     "inputs": {
@@ -168,6 +226,17 @@
     "output": 1,
     "time": 4,
     "building": "Furnace"
+  },
+  "Heat Shield": {
+    "inputs": {
+      "Epoxy": 3,
+      "Aerogel": 3,
+      "Uberfilament": 3,
+      "Reinforced Frame": 2
+    },
+    "output": 2,
+    "time": 10,
+    "building": "Mega Press"
   },
   "Heavy Ammo": {
     "inputs": {
@@ -195,8 +264,8 @@
       "Wolfram Wire": 1,
       "Ceramics": 2
     },
-    "output": 1,
-    "time": 3,
+    "output": 2,
+    "time": 4,
     "building": "Furnace"
   },
   "Intermediate Building Material": {
@@ -210,19 +279,20 @@
     "time": 6,
     "building": "Mega Press"
   },
-  "Ion Injector": {
+  "Ion Stabilizer": {
     "inputs": {
-      "Applicator": 10,
-      "Electromagnet": 4,
-      "Pressure Tank": 2
+      "Epoxy": 1,
+      "Liquid Helium": 3,
+      "Onboard Instruments": 1,
+      "Explosive Charge": 1
     },
     "output": 1,
-    "time": 12,
-    "building": "Compounder"
+    "time": 10,
+    "building": "Mega Press"
   },
   "Laser Emitter": {
     "inputs": {
-      "Lens": 2,
+      "Lens": 1,
       "Resonator": 1,
       "Electromagnetic Coil": 6
     },
@@ -233,11 +303,11 @@
   "Lens": {
     "inputs": {
       "Glass": 10,
-      "Hardening Agent": 8,
-      "Synthetic Resin": 8
+      "Hardening Agent": 6,
+      "Synthetic Resin": 4
     },
     "output": 1,
-    "time": 12,
+    "time": 10,
     "building": "Compounder"
   },
   "Liquid Helium": {
@@ -252,31 +322,41 @@
   "Nanofibre": {
     "inputs": {
       "Tube": 20,
-      "Liquid Helium": 5
+      "Liquid Helium": 5,
+      "Wolfram Wire": 8
     },
-    "output": 1,
-    "time": 5,
+    "output": 2,
+    "time": 6,
     "building": "Compounder"
   },
   "Nozzle": {
     "inputs": {
       "Heat Resistant Sheet": 2,
-      "Helium-3": 1,
-      "Stabilizer": 2
+      "Helium-3": 6,
+      "Stabilizer": 1
     },
     "output": 1,
     "time": 5,
     "building": "Mega Press"
   },
+  "Onboard Instruments": {
+    "inputs": {
+      "Electronics": 1,
+      "Stabilizer": 2,
+      "Reinforced Housing": 1
+    },
+    "output": 1,
+    "time": 5,
+    "building": "Assembler"
+  },
   "Pressure Tank": {
     "inputs": {
       "Heat Resistant Sheet": 5,
-      "Titanium Housing": 3,
-      "Pump": 3,
-      "Valve": 2
+      "Valve": 2,
+      "Pump": 2
     },
     "output": 1,
-    "time": 12,
+    "time": 10,
     "building": "Assembler"
   },
   "Pressurized Helium": {
@@ -286,7 +366,7 @@
     },
     "output": 1,
     "time": 2,
-    "building": "Refinery"
+    "building": "Pressurizer"
   },
   "Pump": {
     "inputs": {
@@ -299,6 +379,26 @@
     "time": 10,
     "building": "Mega Press"
   },
+  "Reinforced Frame": {
+    "inputs": {
+      "Tube": 4,
+      "Titanoferrite Ingot": 4,
+      "Titanium Beam": 2
+    },
+    "output": 1,
+    "time": 5,
+    "building": "Mega Press"
+  },
+  "Reinforced Housing": {
+    "inputs": {
+      "Titanium Housing": 1,
+      "Wolfram Steel Ingot": 4,
+      "Wolfram Plate": 3
+    },
+    "output": 1,
+    "time": 4,
+    "building": "Mega Press"
+  },
   "Resonator": {
     "inputs": {
       "Accumulator": 1,
@@ -306,7 +406,7 @@
       "Liquid Helium": 2
     },
     "output": 1,
-    "time": 12,
+    "time": 10,
     "building": "Assembler"
   },
   "Rotor": {
@@ -320,8 +420,8 @@
   },
   "Scanner": {
     "inputs": {
-      "Lens": 2,
-      "Generator": 2,
+      "Lens": 3,
+      "Generator": 3,
       "Stabilizer": 12
     },
     "output": 1,
@@ -343,7 +443,7 @@
       "Titanium Rod": 2
     },
     "output": 1,
-    "time": 6,
+    "time": 3,
     "building": "Fabricator"
   },
   "Standard Ammo": {
@@ -364,30 +464,42 @@
     "time": 3,
     "building": "Fabricator"
   },
-  "Sulphuric Acid": {
+  "Substance #FHS-135-493": {
     "inputs": {
-      "Sulphur Ore": 2,
-      "Chemicals": 1
+      "Sulphuric Acid": 1,
+      "Goethite Powder": 3,
+      "Liquid Helium": 2
     },
     "output": 1,
-    "time": 0.5,
-    "building": "Refinery"
+    "time": 6,
+    "building": "Compounder"
+  },
+  "Sulphuric Acid": {
+    "inputs": {
+      "Sulphur Ore": 8,
+      "Chemicals": 4
+    },
+    "output": 4,
+    "time": 2,
+    "building": "Pressurizer"
   },
   "Superconductor": {
     "inputs": {
-      "Ceramics": 7,
-      "Electromagnet": 2,
-      "Supermagnet": 8
+      "Synthetic Resin": 2,
+      "Electromagnet": 1,
+      "Supermagnet": 3,
+      "Aerogel": 2,
+      "Heat Shield": 2
     },
-    "output": 1,
+    "output": 2,
     "time": 5,
-    "building": "Compounder"
+    "building": "Constructorizer v.2"
   },
   "Supermagnet": {
     "inputs": {
-      "Sulphuric Acid": 5,
-      "Wolfram Plate": 5,
-      "Chemicals": 2
+      "Sulphuric Acid": 4,
+      "Wolfram Plate": 4,
+      "Chemicals": 1
     },
     "output": 1,
     "time": 3,
@@ -395,9 +507,9 @@
   },
   "Synthetic Resin": {
     "inputs": {
-      "Hardening Agent": 2,
-      "Sulphuric Acid": 4,
-      "Calcite Sheets": 10
+      "Hardening Agent": 1,
+      "Sulphuric Acid": 3,
+      "Calcite Sheets": 6
     },
     "output": 1,
     "time": 3,
@@ -423,9 +535,9 @@
   },
   "Titanium Beam": {
     "inputs": {
-      "Titanium Bar": 1
+      "Titanium Bar": 2
     },
-    "output": 1,
+    "output": 3,
     "time": 3,
     "building": "Fabricator"
   },
@@ -456,11 +568,11 @@
   },
   "Titanoferrite Ingot": {
     "inputs": {
-      "Titanium Bar": 2,
-      "Goethite Ore": 2
+      "Titanium Ore": 10,
+      "Goethite Ore": 1
     },
-    "output": 2,
-    "time": 1,
+    "output": 10,
+    "time": 4,
     "building": "Pyro Forge"
   },
   "Tube": {
@@ -483,6 +595,16 @@
     "time": 6,
     "building": "Mega Press"
   },
+  "Uberfilament": {
+    "inputs": {
+      "Calcium Powder": 6,
+      "Goethite Lattice": 2,
+      "Epoxy": 1
+    },
+    "output": 1,
+    "time": 4,
+    "building": "Assembler"
+  },
   "Valve": {
     "inputs": {
       "Titanium Housing": 1,
@@ -504,10 +626,10 @@
   },
   "Wolfram Plate": {
     "inputs": {
-      "Wolfram Bar": 1
+      "Wolfram Bar": 2
     },
-    "output": 1,
-    "time": 1,
+    "output": 2,
+    "time": 2,
     "building": "Fabricator"
   },
   "Wolfram Powder": {
@@ -520,11 +642,11 @@
   },
   "Wolfram Steel Ingot": {
     "inputs": {
-      "Wolfram Bar": 2,
-      "Goethite Ore": 2
+      "Wolfram Ore": 10,
+      "Goethite Ore": 1
     },
-    "output": 1,
-    "time": 1,
+    "output": 10,
+    "time": 4,
     "building": "Pyro Forge"
   },
   "Wolfram Wire": {
@@ -537,8 +659,10 @@
   },
   "_tiers": {
     "Accumulator": 7,
+    "Aerogel": 8,
     "Applicator": 3,
     "Basic Building Material": 1,
+    "Basic Fuel": 8,
     "Battery": 6,
     "Calcite Sheets": 1,
     "Calcium Block": 0,
@@ -549,24 +673,32 @@
     "Electromagnet": 8,
     "Electromagnetic Coil": 7,
     "Electronics": 4,
+    "Epoxy": 8,
+    "Explosive Charge": 9,
     "Generator": 7,
     "Glass": 2,
     "Goethite Ingot": 1,
+    "Goethite Lattice": 2,
+    "Goethite Powder": 2,
     "Hardening Agent": 6,
     "Heat Resistant Sheet": 3,
+    "Heat Shield": 10,
     "Heavy Ammo": 2,
     "Impeller": 4,
     "Inductor": 3,
     "Intermediate Building Material": 4,
-    "Ion Injector": 9,
+    "Ion Stabilizer": 10,
     "Laser Emitter": 9,
     "Lens": 8,
     "Liquid Helium": 7,
     "Nanofibre": 8,
     "Nozzle": 4,
+    "Onboard Instruments": 5,
     "Pressure Tank": 8,
     "Pressurized Helium": 1,
     "Pump": 7,
+    "Reinforced Frame": 3,
+    "Reinforced Housing": 3,
     "Resonator": 8,
     "Rotor": 2,
     "Scanner": 9,
@@ -574,8 +706,9 @@
     "Stabilizer": 3,
     "Standard Ammo": 2,
     "Stator": 3,
+    "Substance #FHS-135-493": 8,
     "Sulphuric Acid": 5,
-    "Superconductor": 9,
+    "Superconductor": 11,
     "Supermagnet": 6,
     "Synthetic Resin": 7,
     "Synthetic Silicon": 3,
@@ -587,6 +720,7 @@
     "Titanoferrite Ingot": 1,
     "Tube": 2,
     "Turbine": 6,
+    "Uberfilament": 9,
     "Valve": 5,
     "Wolfram Bar": 0,
     "Wolfram Plate": 1,
